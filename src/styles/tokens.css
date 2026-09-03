@@ -1,0 +1,105 @@
+/* ---------------------------------------------------------------------------
+   AskCENLA Repair Network — design tokens
+   Navy / blue / white / charcoal / light grey. One source of truth for colour,
+   spacing, radius, shadow and type so every screen stays consistent.
+   --------------------------------------------------------------------------- */
+
+:root {
+  /* Brand navy — headers, sidebar, primary text */
+  --navy-950: #050f1f;
+  --navy-900: #0a1f3c;
+  --navy-800: #102c52;
+  --navy-700: #17396a;
+  --navy-600: #1d4780;
+
+  /* Action blue — buttons, links, focus */
+  --blue-700: #12559e;
+  --blue-600: #1866bd;
+  --blue-500: #2b7ad4;
+  --blue-100: #dbeafe;
+  --blue-50: #eff6ff;
+
+  /* Neutrals — charcoal to light grey */
+  --charcoal-900: #1c2430;
+  --charcoal-700: #38424f;
+  --charcoal-500: #5b6675;
+  --charcoal-400: #7c8798;
+  --grey-300: #b9c2cf;
+  --grey-200: #dbe1ea;
+  --grey-100: #eaeef4;
+  --grey-50: #f5f7fa;
+  --white: #ffffff;
+
+  /* Status colours */
+  --success-700: #12694a;
+  --success-500: #16a06f;
+  --success-50: #e7f7f0;
+  --warning-700: #8a5407;
+  --warning-500: #d38a10;
+  --warning-50: #fdf4e3;
+  --danger-700: #98261f;
+  --danger-500: #d13c31;
+  --danger-50: #fdeeec;
+  --info-700: #12559e;
+  --info-50: #eaf3fd;
+  --progress-700: #4c3a99;
+  --progress-500: #6a53c9;
+  --progress-50: #f0edfb;
+
+  /* Semantic aliases — components reference these, not raw colours */
+  --bg-app: var(--grey-50);
+  --bg-surface: var(--white);
+  --bg-subtle: var(--grey-100);
+  --border: var(--grey-200);
+  --border-strong: var(--grey-300);
+  --text-strong: var(--navy-900);
+  --text-body: var(--charcoal-700);
+  --text-muted: var(--charcoal-500);
+  --text-inverse: var(--white);
+  --accent: var(--blue-600);
+  --accent-hover: var(--blue-700);
+
+  /* Spacing scale (4px base) */
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.25rem;
+  --sp-6: 1.5rem;
+  --sp-8: 2rem;
+  --sp-10: 2.5rem;
+  --sp-12: 3rem;
+  --sp-16: 4rem;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* Elevation — soft and sparing, this is a document tool not a toy */
+  --shadow-xs: 0 1px 2px rgba(10, 31, 60, 0.06);
+  --shadow-sm: 0 1px 3px rgba(10, 31, 60, 0.08), 0 1px 2px rgba(10, 31, 60, 0.04);
+  --shadow-md: 0 4px 16px rgba(10, 31, 60, 0.08);
+  --shadow-lg: 0 12px 32px rgba(10, 31, 60, 0.14);
+
+  /* Type */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.25rem;
+  --text-4xl: 3rem;
+
+  /* Layout */
+  --sidebar-width: 248px;
+  --topbar-height: 64px;
+  --content-max: 1240px;
+}

@@ -1,0 +1,19 @@
+node_modules
+dist
+dist-ssr
+.vite
+*.local
+
+# Environment files — never commit real credentials
+.env
+.env.*
+!.env.example
+
+.DS_Store
+*.log
+npm-debug.log*
+.netlify
+coverage
+
+# TypeScript incremental build cache
+*.tsbuildinfo
