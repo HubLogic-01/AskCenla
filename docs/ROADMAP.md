@@ -136,15 +136,39 @@ activity timeline — that is Phase 7 work, not routing work.
 
 ---
 
-### Phase 5 — Contractor accept/decline on live data
+### ✅ Phase 5 — Contractor accept / decline *(complete)*
 
-`accept_opportunity()` and `decline_opportunity()` as SECURITY DEFINER
-functions: verify the caller holds a pending offer, set the outcome, claim or
-re-route the opportunity, update the contractor's response statistics, and
-notify the agent. Then delete the three `NotYetLiveError` stubs in
-`supabaseRepository`.
+**Delivered** (`supabase/migrations/0008_contractor_actions.sql`):
 
-### Phase 6 — Quotes
+- `accept_opportunity()`, `decline_opportunity()` and an admin-only
+  `reroute_opportunity()`. All three are `SECURITY DEFINER`, because accepting
+  claims a row that belongs to nobody and the RLS policy deliberately only lets
+  a contractor touch opportunities they already own.
+- Each **locks the opportunity row first**, so a decline racing the scheduled
+  sweep cannot both advance the ladder and leave the job offered to two
+  contractors at once. A test asserts that never happens.
+- Each **verifies the caller actually holds the pending offer** rather than
+  trusting the id passed in. Since these functions run with rights the caller
+  does not have, their own checks are the entire security boundary.
+- Response time is recorded and feeds the routing score. `offers_received` is
+  the denominator on purpose: every offer resolves eventually — accepted,
+  declined, or expired — so an ignored offer correctly drags a contractor's
+  average down and moves them down the rotation.
+- The admin re-route **withdraws the live offer before routing on**, and
+  refuses outright to touch work a contractor has already accepted.
+- The three `NotYetLiveError` stubs are gone; `mockRepository` was brought to
+  the same behaviour so demo mode does not teach something different.
+
+*Verified:* 116/116 database assertions. The interesting ones are the abuse
+cases — accepting an offer made to someone else, accepting twice, an agent
+posing as a contractor, and re-routing a job already under way. Also checked in
+the browser: declining removes the offer from that contractor's list and passes
+it on, and accepting flips the address, agent contact and inspection report
+from hidden to visible in the same session.
+
+---
+
+### Phase 6 — Quotes ← **next**
 Persist quotes and line items; attachments on quotes; a printable PDF built from
 the existing `QuoteDocument` component (it is already a single shared template).
 The RLS policies for all of this already exist and are tested — this is

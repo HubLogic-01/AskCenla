@@ -74,14 +74,27 @@ client calls, a browser dying halfway leaves a property with no opportunities
 attached. As one `SECURITY DEFINER` function, it either all happens or none of
 it does.
 
+### Where RPCs are used, and why
+
+| Function | Why it cannot be a plain row write |
+|---|---|
+| `submit_repair_request` | One request, N items, N opportunities, N offers — atomically |
+| `accept_opportunity` | Claims a row that currently belongs to nobody |
+| `decline_opportunity` | Must advance the rotation, not just record an answer |
+| `reroute_opportunity` | Withdraws a live offer, then routes; admin only |
+| `run_offer_sweep` | Operates across every contractor's offers |
+
+Each is `SECURITY DEFINER`, so it runs with rights the caller does not have.
+That makes its own authorisation check the entire security boundary, which is
+why `supabase/tests/04_contractor_actions_test.sql` spends more assertions on
+the abuse cases than the happy path.
+
 ### What is not connected yet
 
-`supabaseRepository` throws a typed `NotYetLiveError` for contractor
-accept/decline (Phase 5) and the quote builder (Phase 6), naming the phase in
-the message. Accepting reassigns an opportunity that currently belongs to
-nobody, which is deliberately not a row update any contractor is allowed to
-make — so it needs its own function rather than a shortcut in the policies.
-The UI surfaces the message instead of appearing to work.
+`supabaseRepository` throws a typed `NotYetLiveError` for the quote builder
+(Phase 6) and for editing a contractor's trades and territories (Phase 8),
+naming the phase in the message, and the UI surfaces it instead of appearing to
+work.
 
 ## 3. The matching engine
 
@@ -338,6 +351,14 @@ overwrite.
 the difference between an automation you can test and one you can only watch.
 `supabase/tests/03_automation_test.sql` proves the 24-hour behaviour in
 milliseconds.
+
+**Anything that advances the ladder locks the opportunity row first.** Once
+routing runs on a schedule, a contractor declining and the sweep expiring the
+same offer can happen in the same second. Without `select ... for update` in
+`app.claim_pending_offer()` and `reroute_opportunity()`, both would route on
+and the job would be live with two contractors — the one failure mode that
+would actually damage trust in the network. There is a test asserting no
+opportunity ever has two pending assignments.
 
 Everything above surfaces exceptions rather than queuing work: the Routing
 Monitor shows only what the automation could not finish, and explains why per

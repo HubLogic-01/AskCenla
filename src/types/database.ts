@@ -317,6 +317,20 @@ export type Database = {
         Args: Record<string, never>;
         Returns: number;
       };
+      /** supabase/migrations/0008_contractor_actions.sql */
+      accept_opportunity: {
+        Args: { p_opportunity_id: string };
+        Returns: { opportunity_id: string; status: OpportunityStatus; contractor_id: string };
+      };
+      decline_opportunity: {
+        Args: { p_opportunity_id: string };
+        Returns: { opportunity_id: string; next_contractor: string | null };
+      };
+      /** Admin-only. Withdraws the live offer and offers to the next contractor. */
+      reroute_opportunity: {
+        Args: { p_opportunity_id: string };
+        Returns: { opportunity_id: string; next_contractor: string | null };
+      };
     };
     Enums: {
       user_role: UserRole;

@@ -445,21 +445,30 @@ class SupabaseRepository implements Repository {
   // -------------------------------------------------------------------------
   // Opportunity lifecycle
   //
-  // Accepting reassigns an opportunity that currently belongs to nobody, and
-  // declining has to advance the rotation — neither is expressible as a row
-  // update a contractor is allowed to make, by design. Both become RPCs in
-  // Phase 5, alongside the scheduled expiry sweep.
+  // All three are RPCs rather than row updates. Accepting claims an
+  // opportunity that currently belongs to nobody and declining has to advance
+  // the rotation, and the RLS policy deliberately only lets a contractor touch
+  // opportunities they ALREADY own — so each function checks the caller holds
+  // the pending offer itself, and locks the row so a decline and the scheduled
+  // sweep cannot both advance the same job.
+  //
+  // The contractorId argument is accepted for interface symmetry with the mock
+  // and then ignored: the database derives the contractor from the session, so
+  // passing somebody else's id achieves nothing.
   // -------------------------------------------------------------------------
-  async acceptOpportunity(): Promise<void> {
-    throw new NotYetLiveError('Accepting an opportunity', 'Phase 5');
+  async acceptOpportunity(opportunityId: string): Promise<void> {
+    const { error } = await this.db.rpc('accept_opportunity', { p_opportunity_id: opportunityId });
+    if (error) throw new Error(error.message);
   }
 
-  async declineOpportunity(): Promise<void> {
-    throw new NotYetLiveError('Declining an opportunity', 'Phase 5');
+  async declineOpportunity(opportunityId: string): Promise<void> {
+    const { error } = await this.db.rpc('decline_opportunity', { p_opportunity_id: opportunityId });
+    if (error) throw new Error(error.message);
   }
 
-  async rerouteOpportunity(): Promise<void> {
-    throw new NotYetLiveError('Manual re-routing', 'Phase 5');
+  async rerouteOpportunity(opportunityId: string): Promise<void> {
+    const { error } = await this.db.rpc('reroute_opportunity', { p_opportunity_id: opportunityId });
+    if (error) throw new Error(error.message);
   }
 
   async setOpportunityStatus(opportunityId: string, status: OpportunityStatus): Promise<void> {

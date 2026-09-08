@@ -72,6 +72,25 @@ class MockRepository implements Repository {
     });
   }
 
+  /**
+   * Mirrors app.record_response(). `offers_received` is the denominator
+   * because every offer eventually resolves — accepted, declined or expired —
+   * so an ignored offer correctly drags the average down.
+   */
+  private recordResponse(contractorId: string, hours: number) {
+    this.store.contractors = this.store.contractors.map((c) => {
+      if (c.id !== contractorId) return c;
+      const received = Math.max(c.stats.offers_received, 1);
+      const next =
+        (c.stats.avg_response_hours * (received - 1) + Math.min(hours, 999)) / received;
+      return { ...c, stats: { ...c.stats, avg_response_hours: Math.round(next * 100) / 100 } };
+    });
+  }
+
+  private hoursSince(iso: string): number {
+    return (Date.now() - new Date(iso).getTime()) / 3_600_000;
+  }
+
   /** Mirrors app.notify_unmatched(): tell the agent when the ladder runs out. */
   private notifyUnmatched(opportunityId: string) {
     const opportunity = this.store.opportunities.find((o) => o.id === opportunityId);
@@ -212,6 +231,10 @@ class MockRepository implements Repository {
   async acceptOpportunity(opportunityId: string, contractorId: string): Promise<void> {
     const nowIso = new Date().toISOString();
     const opportunity = this.store.opportunities.find((o) => o.id === opportunityId);
+    const offer = this.store.assignments.find(
+      (a) => a.opportunity_id === opportunityId && a.contractor_id === contractorId && a.outcome === 'pending',
+    );
+    if (!offer) throw new Error('This opportunity is not currently offered to you');
 
     this.store.opportunities = this.store.opportunities.map((o) =>
       o.id === opportunityId
@@ -223,6 +246,13 @@ class MockRepository implements Repository {
         ? { ...a, outcome: 'accepted', responded_at: nowIso }
         : a,
     );
+
+    this.store.contractors = this.store.contractors.map((c) =>
+      c.id === contractorId
+        ? { ...c, stats: { ...c.stats, offers_accepted: c.stats.offers_accepted + 1 } }
+        : c,
+    );
+    this.recordResponse(contractorId, this.hoursSince(offer.offered_at));
 
     if (opportunity) this.syncRequestStatus(opportunity.request_id);
 
@@ -242,6 +272,12 @@ class MockRepository implements Repository {
     const nowIso = new Date().toISOString();
     const opportunity = this.store.opportunities.find((o) => o.id === opportunityId);
     if (!opportunity) return;
+
+    const offer = this.store.assignments.find(
+      (a) => a.opportunity_id === opportunityId && a.contractor_id === contractorId && a.outcome === 'pending',
+    );
+    if (!offer) throw new Error('This opportunity is not currently offered to you');
+    this.recordResponse(contractorId, this.hoursSince(offer.offered_at));
 
     const priorAssignments = [
       ...this.store.assignments.filter((a) => a.opportunity_id === opportunityId),
@@ -289,6 +325,20 @@ class MockRepository implements Repository {
   async rerouteOpportunity(opportunityId: string): Promise<void> {
     const opportunity = this.store.opportunities.find((o) => o.id === opportunityId);
     if (!opportunity) return;
+    if (opportunity.contractor_id) {
+      throw new Error('That opportunity has already been accepted by a contractor');
+    }
+
+    // Withdraw the live offer first. Without this the ladder would advance
+    // while the previous contractor still held a pending offer, and the job
+    // would be live with two of them at once.
+    const nowWithdrawn = new Date().toISOString();
+    this.store.assignments = this.store.assignments.map((a) =>
+      a.opportunity_id === opportunityId && a.outcome === 'pending'
+        ? { ...a, outcome: 'withdrawn' as const, responded_at: nowWithdrawn }
+        : a,
+    );
+
     const prior = this.store.assignments.filter((a) => a.opportunity_id === opportunityId);
     const decision = routeOpportunity(opportunity, this.store.contractors, prior);
     const nowIso = new Date().toISOString();
@@ -328,6 +378,8 @@ class MockRepository implements Repository {
       this.store.assignments = this.store.assignments.map((a) =>
         a.id === assignment.id ? { ...a, outcome: 'expired' as const, responded_at: nowIso } : a,
       );
+      // An ignored offer is a response too — the slowest possible one.
+      this.recordResponse(assignment.contractor_id, this.hoursSince(assignment.offered_at));
       await this.rerouteOpportunity(assignment.opportunity_id);
     }
     return lapsed.length;
