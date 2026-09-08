@@ -14,6 +14,9 @@ const KIND_LABEL: Record<AttachmentKind, string> = {
   quote_attachment: 'Quote attachment',
 };
 
+/** Matches the bucket's file_size_limit in supabase/migrations/0003_storage.sql. */
+const MAX_FILE_MB = 25;
+
 /** Infers the attachment kind so the agent does not have to classify every file. */
 function inferKind(file: File): AttachmentKind {
   if (file.type.startsWith('image/')) return 'photo';
@@ -31,6 +34,12 @@ export function StepDocuments({
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
+  // Checked here so the agent finds out before submitting, not after the
+  // request is saved and the upload bounces.
+  const oversized = state.files
+    .filter((f) => f.size_bytes > MAX_FILE_MB * 1024 * 1024)
+    .map((f) => f.file_name);
+
   function addFiles(list: FileList | null) {
     if (!list) return;
     const next: DraftAttachment[] = Array.from(list).map((file) => ({
@@ -38,6 +47,9 @@ export function StepDocuments({
       size_bytes: file.size,
       mime_type: file.type || 'application/octet-stream',
       kind: inferKind(file),
+      // Keep the real File. It is what actually gets uploaded to the private
+      // bucket on submit; the fields above are only what we record about it.
+      file,
     }));
     update({ files: [...state.files, ...next] });
   }
@@ -48,6 +60,15 @@ export function StepDocuments({
         Files go into a private storage bucket. AskCENLA never creates a public link — a contractor only
         receives time-limited access after they accept that trade.
       </Alert>
+
+      {oversized.length > 0 && (
+        <div style={{ marginTop: 'var(--sp-4)' }}>
+          <Alert tone="warning" title="Some files are too large">
+            {oversized.join(', ')} — the limit is {MAX_FILE_MB}&nbsp;MB per file. Remove them before
+            submitting, or the upload will be rejected.
+          </Alert>
+        </div>
+      )}
 
       <div style={{ height: 'var(--sp-5)' }} />
 
@@ -85,6 +106,7 @@ export function StepDocuments({
           accept=".pdf,.doc,.docx,image/*"
           onChange={(e) => {
             addFiles(e.target.files);
+            // Reset so picking the same file twice still fires a change event.
             e.target.value = '';
           }}
         />

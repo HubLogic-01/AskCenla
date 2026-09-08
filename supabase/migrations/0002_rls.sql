@@ -156,6 +156,18 @@ $$;
 grant usage on schema app to authenticated, service_role;
 grant execute on all functions in schema app to authenticated, service_role;
 
+-- True when the statement is running as a browser session rather than as
+-- platform code. `current_user` reflects the executing role — inside a
+-- SECURITY DEFINER function it is the function's owner, not the caller — so a
+-- client cannot make this return false by manipulating its own request.
+create or replace function app.is_browser_session()
+returns boolean
+language sql
+stable
+as $$
+  select current_user in ('authenticated', 'anon');
+$$;
+
 -- ---------------------------------------------------------------------------
 -- Privilege-escalation guards.
 --
@@ -165,19 +177,26 @@ grant execute on all functions in schema app to authenticated, service_role;
 
 -- Without this, any user could UPDATE their own profile row and set
 -- role = 'admin', because the row is legitimately theirs.
+-- NOTE: deliberately NOT security definer. Inside a definer function
+-- current_user is the function's owner, which would make
+-- app.is_browser_session() always false and the guard a no-op. It needs no
+-- elevated rights: it only compares NEW to OLD.
 create or replace function app.guard_profile_columns()
 returns trigger
 language plpgsql
-security definer
 set search_path = public, pg_temp
 as $$
 begin
-  -- No JWT means this is server-side code: a migration, the SQL editor, an
-  -- Edge Function, or the Stripe webhook using the service_role key. Those are
-  -- already trusted. The guard exists to constrain BROWSER sessions, and a
-  -- browser session always carries a JWT (without one it is `anon`, which has
-  -- no table grants at all).
-  if auth.uid() is null or app.is_admin() then
+  -- Only guard writes arriving directly from a browser session.
+  --
+  -- `current_user` is the role the statement is EXECUTING as, which cannot be
+  -- forged by a client: PostgREST connects as `authenticated`, while platform
+  -- code inside a SECURITY DEFINER function executes as the function's owner,
+  -- and migrations, the SQL editor and the service_role key are their own
+  -- roles. So this distinguishes "a user is editing their own row" from "the
+  -- platform is maintaining data it owns" without trusting anything the
+  -- caller supplies.
+  if not app.is_browser_session() or app.is_admin() then
     return new;
   end if;
   if new.role is distinct from old.role then
@@ -199,15 +218,17 @@ create trigger profiles_guard_columns before update on public.profiles
 -- Without this, a contractor could set their own membership_status to
 -- 'active' and receive opportunities without paying — the matching engine
 -- trusts this column.
+-- Invoker rights, for the same reason as app.guard_profile_columns().
 create or replace function app.guard_contractor_columns()
 returns trigger
 language plpgsql
-security definer
 set search_path = public, pg_temp
 as $$
 begin
-  -- See app.guard_profile_columns(): server-side callers have no JWT.
-  if auth.uid() is null or app.is_admin() then
+  -- See app.guard_profile_columns(). This is what lets app.route_opportunity()
+  -- increment offers_received while still stopping a contractor from editing
+  -- the same column from their browser.
+  if not app.is_browser_session() or app.is_admin() then
     return new;
   end if;
   if new.membership_status is distinct from old.membership_status then

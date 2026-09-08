@@ -9,6 +9,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Tabs } from '@/components/ui/Tabs';
 import { OpportunityStatusBadge } from '@/components/ui/StatusBadge';
 import { useData } from '@/app/providers/DataProvider';
+import { useAction } from '@/lib/useAction';
 import { assignmentsForOpportunity, requestForOpportunity } from '@/lib/selectors';
 import { evaluateContractors, findExpiredOffers, MAX_CONTRACTORS_PER_TRADE } from '@/lib/matching';
 import { tradeLabel } from '@/data/trades';
@@ -36,6 +37,7 @@ export function AdminRouting() {
   const { rerouteOpportunity } = useData();
   const [filter, setFilter] = useState<Filter>('attention');
   const [expanded, setExpanded] = useState<string | null>(null);
+  const { busy, error, run } = useAction();
 
   const unmatched = data.opportunities.filter((o) => o.status === 'awaiting_contractor');
   const routing = data.opportunities.filter((o) => ['offered', 'matching'].includes(o.status));
@@ -48,6 +50,14 @@ export function AdminRouting() {
         title="Routing Monitor"
         description={`Opportunities are offered to one contractor at a time, up to ${MAX_CONTRACTORS_PER_TRADE} per trade per territory. This screen shows anything the automation could not finish on its own.`}
       />
+
+      {error && (
+        <div style={{ marginBottom: 'var(--sp-5)' }}>
+          <Alert tone="danger" title="That did not work">
+            {error}
+          </Alert>
+        </div>
+      )}
 
       {expired.length > 0 && (
         <div style={{ marginBottom: 'var(--sp-5)' }}>
@@ -123,8 +133,8 @@ export function AdminRouting() {
                       <Button
                         size="sm"
                         icon="route"
-                        disabled={remaining === 0}
-                        onClick={() => rerouteOpportunity(opportunity.id)}
+                        disabled={remaining === 0 || busy}
+                        onClick={() => void run(() => rerouteOpportunity(opportunity.id))}
                       >
                         {remaining === 0 ? 'No one left' : 'Offer to next'}
                       </Button>

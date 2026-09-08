@@ -4,6 +4,7 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { Card, CardBody, CardFooter, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/Icon';
+import { Alert } from '@/components/ui/Alert';
 import { useAuth } from '@/app/providers/AuthProvider';
 import { useData, type SubmitResult } from '@/app/providers/DataProvider';
 import { brokerages } from '@/data/seed';
@@ -22,6 +23,8 @@ export function NewRequestWizard() {
   const [step, setStep] = useState(1);
   const [errors, setErrors] = useState<StepErrors>({});
   const [result, setResult] = useState<SubmitResult | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Pre-fill contact details from the signed-in agent — one less thing to type.
   const [state, setState] = useState<WizardState>(() => ({
@@ -65,8 +68,8 @@ export function NewRequestWizard() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  function onSubmit() {
-    if (!profile) return;
+  async function onSubmit() {
+    if (!profile || submitting) return;
     // Validate every step, not just the current one, before committing.
     for (const s of [1, 2, 3, 4]) {
       const found = validateStep(s, state);
@@ -76,8 +79,20 @@ export function NewRequestWizard() {
         return;
       }
     }
-    setResult(submitRepairRequest(state, profile.id, profile.brokerage_id));
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      setResult(await submitRepairRequest(state));
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error ? err.message : 'Your request could not be submitted. Please try again.',
+      );
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   // ---------------------------------------------------------------- success
@@ -89,6 +104,18 @@ export function NewRequestWizard() {
           title={`Repair Request #${result.request.reference} created`}
           description="Each trade below has been turned into its own opportunity and routed to a matching contractor."
         />
+        {result.warnings.length > 0 && (
+          <div style={{ marginBottom: 'var(--sp-5)' }}>
+            <Alert tone="warning" title="Some documents did not upload">
+              <ul style={{ paddingLeft: 'var(--sp-5)', margin: 'var(--sp-2) 0 0' }}>
+                {result.warnings.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+              You can add them again from the property dashboard.
+            </Alert>
+          </div>
+        )}
         <Card>
           <CardHeader
             title={`${result.opportunities.length} opportunities created`}
@@ -166,6 +193,14 @@ export function NewRequestWizard() {
             <div className="wizard-progress__bar" style={{ width: `${(step / 5) * 100}%` }} />
           </div>
 
+          {submitError && (
+            <div style={{ marginBottom: 'var(--sp-5)' }}>
+              <Alert tone="danger" title="Could not submit">
+                {submitError}
+              </Alert>
+            </div>
+          )}
+
           <Card>
             <CardHeader title={`Step ${step} of 5 · ${current.label}`} />
             <CardBody>
@@ -187,8 +222,8 @@ export function NewRequestWizard() {
                   Continue
                 </Button>
               ) : (
-                <Button size="lg" icon="check" onClick={onSubmit}>
-                  Submit repair request
+                <Button size="lg" icon="check" onClick={() => void onSubmit()} disabled={submitting}>
+                  {submitting ? 'Submitting…' : 'Submit repair request'}
                 </Button>
               )}
             </CardFooter>

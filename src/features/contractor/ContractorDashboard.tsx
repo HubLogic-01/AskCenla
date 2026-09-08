@@ -47,7 +47,9 @@ export function ContractorDashboard() {
           <Toggle
             checked={contractor.accepting_opportunities}
             label={contractor.accepting_opportunities ? 'Accepting opportunities' : 'Paused'}
-            onChange={(next) => updateContractor(contractor.id, { accepting_opportunities: next })}
+            onChange={(next) =>
+              void updateContractor(contractor.id, { accepting_opportunities: next })
+            }
           />
         }
       />

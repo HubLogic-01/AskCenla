@@ -53,34 +53,69 @@ migrations. Step-by-step instructions are in the README.
 
 ---
 
-### Phase 3 — Agent dashboard and wizard on live data ← **next**
+### ✅ Phase 3 — The data seam and the agent on live data *(complete)*
 
-The database is ready; this phase moves reads and writes onto it.
+**Delivered:**
 
-1. Add a repository layer behind `DataProvider` with two implementations
-   (mock and Supabase) so demo mode keeps working.
-2. Point the agent dashboard, property list and property dashboard at real
-   queries.
-3. Wire the wizard's insert path. Do it as a single `SECURITY DEFINER`
-   Postgres function taking the whole request as JSON, so a partial failure
-   cannot leave a request with no opportunities — a browser that dies between
-   two `insert()` calls otherwise leaves orphaned rows.
-4. Real file upload to the private `attachments` bucket, writing the matching
-   `public.attachments` row, and swap `AttachmentList` over to
-   `signedAttachmentUrl()`.
+- `src/services/repository.ts` — one interface covering every read and write.
+- `src/services/mockRepository.ts` — the Phase 1 logic, moved behind it.
+- `src/services/supabaseRepository.ts` — real queries, the submit RPC, file
+  upload, and expiring signed URLs.
+- `DataProvider` rewritten: async actions, a loaded workspace, first-load and
+  error states, and a reload after every write so the screen matches what the
+  database accepted.
+- `supabase/migrations/0006_functions.sql` — `submit_repair_request()` creates
+  the request, its items and one opportunity per trade **in one transaction**,
+  and routes each one. Ownership is taken from `auth.uid()`, never the payload.
+- The matching engine now also exists in SQL (`app.eligible_contractors`,
+  `app.route_opportunity`), so routing happens regardless of what created the
+  request.
+- Real file upload to the private bucket; `AttachmentList` opens documents
+  through a 60-second signed URL.
+- `useAction` hook so a rejected write surfaces as a message instead of a
+  silently ignored promise.
+- `ContractorProfile` converted to draft-and-save. It previously wrote on every
+  keystroke, which was harmless against an array and a request per character
+  against a database.
 
-### Phase 4 — Opportunity generation server-side
-Move `routeOpportunity` into a Postgres function or Edge Function triggered on
-request insert, so routing happens even when the request arrives from somewhere
-other than the web app.
+*Verified:* 65/65 database assertions pass, including a test that sends the
+exact payload the client builds. The full browser flow still runs with zero
+console errors in demo mode.
+
+Writing the tests caught a real bug: the column guard added in Phase 2 blocked
+the platform's own routing code from updating the statistics it owns. The guard
+now distinguishes a browser session from platform code by `current_user`, which
+a client cannot forge.
+
+---
+
+### Phase 4 — Routing hardening ← **next**
+
+Routing already runs server-side inside the submit function. What is left is
+making it survive things nobody is watching:
+
+1. Move the call to an `AFTER INSERT` trigger on `opportunities`, so any future
+   way of creating one routes automatically.
+2. A `pg_cron` job that finds lapsed offers (`outcome = 'pending' and
+   expires_at < now()`), marks them `expired` and calls `app.route_opportunity`
+   again — the automatic reassignment the architecture was built for.
+3. Record every status change in `status_history`.
+
+---
 
 ### Phase 5 — Contractor accept/decline on live data
-Accept/decline as transactional updates that also write the
-`opportunity_assignments` outcome and re-route on decline.
+
+`accept_opportunity()` and `decline_opportunity()` as SECURITY DEFINER
+functions: verify the caller holds a pending offer, set the outcome, claim or
+re-route the opportunity, update the contractor's response statistics, and
+notify the agent. Then delete the three `NotYetLiveError` stubs in
+`supabaseRepository`.
 
 ### Phase 6 — Quotes
 Persist quotes and line items; attachments on quotes; a printable PDF built from
 the existing `QuoteDocument` component (it is already a single shared template).
+The RLS policies for all of this already exist and are tested — this is
+repository wiring, not new security work.
 
 ### Phase 7 — Agent quote review
 Accept/decline persisted, with `status_history` entries and contractor

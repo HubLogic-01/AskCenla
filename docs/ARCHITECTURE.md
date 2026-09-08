@@ -20,35 +20,91 @@ code.
 
 ```
    Screens (src/features/**)        "what the user sees"
-        │  reads via useData() / useAuth()
+        │  useData() / useAuth()
         ▼
-   State  (src/app/providers/**)    "the operations the product supports"
-        │  calls
+   Providers (src/app/providers/**) session + loaded workspace
+        │  delegate every read and write to
         ▼
-   Logic  (src/lib/**)              "pure rules — matching, totals, filters"
+   Repository (src/services/**)     mock  |  supabase
+        │  pure rules from
+        ▼
+   Logic  (src/lib/**)              matching, totals, selectors
 ```
 
-**This layering is the most important decision in the codebase**, because it is
-what makes Phase 2 cheap.
+**The repository seam is the most important structural decision in the
+codebase.** `src/services/repository.ts` declares everything the application
+can read or write, and two classes implement it:
 
-- No screen imports the demo dataset directly. Every read and write goes through
-  `useData()`.
-- `DataProvider` exposes *operations*, not tables: `submitRepairRequest`,
-  `acceptOpportunity`, `declineOpportunity`, `submitQuote`, `decideQuote`.
-  These names are already the names of the database operations that will replace
-  them.
-- The rules that matter — who gets an opportunity, what a quote totals, what
-  counts as "open" — are pure functions in `src/lib/`. They have no React and no
-  database dependency, so the same `routeOpportunity()` can later run inside a
-  Supabase Edge Function or a scheduled job without being rewritten.
+| | `mockRepository` | `supabaseRepository` |
+|---|---|---|
+| Data | in-memory demo dataset | PostgreSQL via supabase-js |
+| Permissions | none (selectors filter) | Row Level Security |
+| Chosen when | no credentials configured | `.env` has a project URL and anon key |
 
-**Swapping in Supabase means rewriting the bodies of about a dozen functions in
-`DataProvider.tsx` and `AuthProvider.tsx`. No screen changes.**
+`DataProvider` picks one at startup, and **no screen knows which it got**. That
+buys three things:
 
-## 3. The matching engine (`src/lib/matching.ts`)
+1. A fresh `git clone` runs with no backend, so UI work is never blocked on a
+   database being reachable.
+2. The demo mode used to review designs is the real application, not a
+   separate mock harness that can rot.
+3. Connecting a new backend means writing one class, not touching 30 screens.
+
+Two properties of the interface are deliberate:
+
+- **The methods are operations, not table mutations.** `acceptOpportunity()`,
+  not `updateOpportunity()`. That is what lets the Supabase implementation
+  route a call through a transactional Postgres function while the mock one
+  edits an array.
+- **Writes are followed by a reload rather than an optimistic patch.** One
+  round trip over a small dataset guarantees the screen shows what the database
+  actually accepted. An optimistic update that a permission check silently
+  rejected would be worse than a brief spinner.
+
+### Two rules the Supabase implementation follows
+
+**No permission filtering in the client.** Every query is "select all rows",
+and RLS decides what that means for the signed-in user. A `.eq('created_by',
+me)` written in TypeScript would be a second, weaker copy of a rule that
+already exists in the database, and the two would eventually disagree.
+
+**Writes that cross tables go through RPCs.** Submitting a repair request
+creates a request, N items, N opportunities and N assignments. As separate
+client calls, a browser dying halfway leaves a property with no opportunities
+attached. As one `SECURITY DEFINER` function, it either all happens or none of
+it does.
+
+### What is not connected yet
+
+`supabaseRepository` throws a typed `NotYetLiveError` for contractor
+accept/decline (Phase 5) and the quote builder (Phase 6), naming the phase in
+the message. Accepting reassigns an opportunity that currently belongs to
+nobody, which is deliberately not a row update any contractor is allowed to
+make — so it needs its own function rather than a shortcut in the policies.
+The UI surfaces the message instead of appearing to work.
+
+## 3. The matching engine
 
 The most important business logic in the product, and deliberately the most
-isolated.
+isolated. It exists in **two** places on purpose:
+
+| | `src/lib/matching.ts` | `supabase/migrations/0006_functions.sql` |
+|---|---|---|
+| Runs | in the browser | in PostgreSQL |
+| Used by | demo mode, and the admin Routing Monitor's "why?" explanation | every real submission |
+
+The SQL version is authoritative for live data: routing has to happen no matter
+what created the request — the web app today, an email intake or an Edge
+Function later — so it cannot live only in the client. The TypeScript version
+stays because it is what makes the Routing Monitor able to show, per
+contractor, *which rule* excluded them; a database function returning a ranked
+list cannot explain itself to a UI as cheaply.
+
+They must agree. `supabase/tests/02_rpc_test.sql` pins the SQL side's
+behaviour — top-ranked contractor wins, past-due is skipped, an unmatchable
+trade lands in `awaiting_contractor` — so a change to one that is not mirrored
+in the other shows up as a failing test rather than as mysteriously different
+routing.
 
 ```
 routeOpportunity(opportunity, contractors, priorAssignments)
@@ -173,10 +229,23 @@ may change on a row you legitimately own. Two triggers cover that gap:
   contractor could set themselves to `active` and receive opportunities without
   paying, because the matching engine trusts that column.
 
-Both return early when `auth.uid()` is null, which is the case for server-side
-callers (migrations, the SQL editor, Edge Functions, the Stripe webhook). A
-browser session always carries a JWT — without one it is `anon`, which has no
-table grants at all.
+Both guard only **browser sessions**, decided by `app.is_browser_session()`,
+which checks whether `current_user` is `authenticated` or `anon`. `current_user`
+is the role a statement is executing as and cannot be forged by a client:
+PostgREST connects as `authenticated`, while platform code inside a
+`SECURITY DEFINER` function executes as that function's owner.
+
+That distinction matters in both directions, and the test suite found it the
+hard way. `app.route_opportunity()` has to increment `offers_received` on the
+contractor it just offered work to — the platform maintaining data it owns —
+while a contractor editing the same column from their browser must still be
+refused. An earlier version keyed off `auth.uid() is null`, which blocked
+routing outright because the agent's session id was still present.
+
+The guard functions themselves are deliberately **not** `SECURITY DEFINER`. As
+definers, `current_user` inside them would always be the owner, so
+`is_browser_session()` could never return true and the guards would be silent
+no-ops. They need no elevated rights: they only compare `NEW` to `OLD`.
 
 ### Sign-up cannot grant admin
 

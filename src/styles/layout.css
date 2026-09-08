@@ -255,3 +255,23 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+
+/* Shown while the workspace is loading for the first time. */
+.load-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  padding: var(--sp-16) var(--sp-4);
+}
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--grey-200);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

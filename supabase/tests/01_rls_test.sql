@@ -305,29 +305,3 @@ select tests.check('agent can download their own files',
   (select count(*) from storage.objects), 4::bigint);
 reset role;
 select tests.clear_user();
-
--- ===========================================================================
--- Report
--- ===========================================================================
-\pset format aligned
-select
-  case when passed then 'PASS' else 'FAIL' end as result,
-  name,
-  case when passed then '' else 'expected ' || expected || ', got ' || actual end as detail
-from tests.results
-order by id;
-
-select count(*) filter (where passed) as passed,
-       count(*) filter (where not passed) as failed,
-       count(*) as total
-from tests.results;
-
--- Non-zero exit if anything failed, so this is usable in CI.
-do $$
-declare v_failed integer;
-begin
-  select count(*) into v_failed from tests.results where not passed;
-  if v_failed > 0 then
-    raise exception '% RLS test(s) failed', v_failed;
-  end if;
-end $$;

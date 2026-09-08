@@ -49,7 +49,7 @@ export function Topbar({ onMenu, title }: { onMenu: () => void; title: string })
               {unread > 0 && profile && (
                 <button
                   className="btn btn--ghost btn--sm"
-                  onClick={() => markAllNotificationsRead(profile.id)}
+                  onClick={() => void markAllNotificationsRead(profile.id)}
                 >
                   Mark all read
                 </button>
@@ -66,7 +66,7 @@ export function Topbar({ onMenu, title }: { onMenu: () => void; title: string })
                   key={n.id}
                   className={`notif${n.read_at ? '' : ' is-unread'}`}
                   onClick={() => {
-                    markNotificationRead(n.id);
+                    void markNotificationRead(n.id);
                     setOpen(false);
                     if (n.link) navigate(n.link);
                   }}

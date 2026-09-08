@@ -2,6 +2,9 @@ import { useMemo, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar, type NavCounts } from './Sidebar';
 import { Topbar } from './Topbar';
+import { Card, CardBody } from '@/components/ui/Card';
+import { Alert } from '@/components/ui/Alert';
+import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/app/providers/AuthProvider';
 import { useData } from '@/app/providers/DataProvider';
 import { isPendingOffer, opportunitiesForContractor, requestsForBrokerage, needsAttention } from '@/lib/selectors';
@@ -34,6 +37,10 @@ export function AppShell() {
   const data = useData();
 
   const title = TITLES.find(([prefix]) => pathname.startsWith(prefix))?.[1] ?? 'AskCENLA';
+
+  // Only blank the screen on the FIRST load. Reloads after a write keep the
+  // current view on screen so the page does not flash on every action.
+  const firstLoad = data.loading && data.requests.length === 0 && data.opportunities.length === 0;
 
   const counts = useMemo<NavCounts>(() => {
     if (!profile) return {};
@@ -70,7 +77,30 @@ export function AppShell() {
         <Topbar onMenu={() => setMenuOpen(true)} title={title} />
         <main className="content">
           <div className="content__inner">
-            <Outlet />
+            {/*
+              A failed load is shown INSTEAD of the screen. Rendering a
+              dashboard over an empty workspace would look like "you have no
+              properties" when the truth is "we could not reach the database".
+            */}
+            {data.error ? (
+              <Card>
+                <CardBody>
+                  <Alert tone="danger" title="We could not load your data">
+                    {data.error}
+                  </Alert>
+                  <div style={{ marginTop: 'var(--sp-5)' }}>
+                    <Button onClick={() => void data.refresh()}>Try again</Button>
+                  </div>
+                </CardBody>
+              </Card>
+            ) : firstLoad ? (
+              <div className="load-state">
+                <span className="spinner" aria-hidden="true" />
+                <span className="text-muted">Loading your workspace…</span>
+              </div>
+            ) : (
+              <Outlet />
+            )}
           </div>
         </main>
       </div>

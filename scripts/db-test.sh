@@ -39,5 +39,9 @@ done
 run "$ROOT/supabase/seed.sql"
 
 echo
-echo "Running RLS test suite"
-"${PSQL[@]}" -v ON_ERROR_STOP=1 -q -f "$ROOT/supabase/tests/01_rls_test.sql"
+echo "Running test suites"
+# Numbered so they run in order: harness (00) is already applied above, the
+# suites record assertions, and 99_report.sql prints and sets the exit code.
+for suite in "$ROOT"/supabase/tests/0[1-9]*.sql "$ROOT"/supabase/tests/99_report.sql; do
+  "${PSQL[@]}" -v ON_ERROR_STOP=1 -q -f "$suite"
+done

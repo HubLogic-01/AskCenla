@@ -117,6 +117,7 @@ order**, pasting the contents of each and clicking *Run*:
 | 3 | `supabase/migrations/0003_storage.sql` | The private `attachments` bucket |
 | 4 | `supabase/migrations/0004_auth.sql` | Creates a profile on sign-up |
 | 5 | `supabase/migrations/0005_reference_data.sql` | Trades and territories |
+| 6 | `supabase/migrations/0006_functions.sql` | Request submission + the routing engine |
 
 Do **not** run `supabase/tests/00_local_harness.sql` — that file only exists to
 fake Supabase's own `auth` and `storage` schemas when testing on a plain
@@ -165,7 +166,8 @@ npm run db:test
 
 This builds a throwaway PostgreSQL database, applies every migration and the
 seed, then signs in as each demo user and asserts exactly what they can and
-cannot read — 42 assertions covering agent, broker, contractor and admin.
+cannot read, and what happens when they submit a repair request — 65
+assertions covering agent, broker, contractor and admin.
 
 It needs a local PostgreSQL server (`psql`, `createdb`) but **not** a Supabase
 project: `supabase/tests/00_local_harness.sql` stubs the pieces of Supabase the
@@ -181,6 +183,9 @@ Among the things it proves:
 - neither side can read the other's unsent quote drafts
 - a user cannot promote themselves to admin, and a contractor cannot mark their
   own membership active
+- a submitted request creates exactly one routed opportunity per trade, and
+  ownership comes from the session rather than the payload
+- routing skips a past-due contractor with no admin involvement
 
 ---
 
@@ -218,7 +223,11 @@ src/
 │   └── admin/              Marketplace, contractors, routing monitor, users
 ├── data/                   Trade catalogue, status vocabulary, demo dataset
 ├── lib/                    matching.ts, selectors.ts, format.ts, quotes.ts
-├── services/               supabase.ts — client, config detection, signed URLs
+├── services/               The data seam
+│   ├── repository.ts       The interface every screen ultimately talks to
+│   ├── mockRepository.ts   In-memory demo data
+│   ├── supabaseRepository.ts  Real queries + the submit RPC + file upload
+│   └── supabase.ts         Client, config detection, signed URLs
 ├── types/                  Domain model + database row types
 └── styles/                 Design tokens + component CSS
 
@@ -245,9 +254,17 @@ Full reasoning behind these choices is in
   bucket, the sign-up trigger, and real Supabase authentication. All 42 RLS
   assertions pass.
 
-**Reads and writes still run on the in-memory store.** Authentication is live
-when Supabase is connected, but moving the dashboards onto real queries is
-Phase 3 — see [`docs/ROADMAP.md`](docs/ROADMAP.md).
+- **Phase 3** — the data seam. Every read and write goes through a repository
+  with two interchangeable implementations, so the app runs identically on demo
+  data or on Supabase. The agent's dashboards read from real queries, the
+  wizard submits through one transactional Postgres function that also routes
+  every trade, and inspection reports upload to the private bucket and open
+  through expiring signed URLs.
+
+**Contractor accept/decline and the quote builder are still demo-only.** They
+need their own server-side functions, which is Phase 5 and Phase 6 — see
+[`docs/ROADMAP.md`](docs/ROADMAP.md). Against a live database those buttons say
+so plainly rather than appearing to work.
 
 Never commit credentials. `.env` is git-ignored; `.env.example` documents the
 variables without values.

@@ -8,6 +8,12 @@
  *
  * The row shapes intentionally match src/types/domain.ts, so the UI keeps
  * using the domain types and only the data layer touches these.
+ *
+ * These are `type` aliases, not `interface`s, and must stay that way. An
+ * interface has no implicit index signature, so it does not satisfy
+ * postgrest-js's `Record<string, unknown>` constraint — every table silently
+ * collapses to `never` and query results lose their types. Generated Supabase
+ * types use aliases for the same reason.
  */
 
 import type {
@@ -25,7 +31,7 @@ import type {
   UserRole,
 } from './domain';
 
-export interface ProfileRow {
+export type ProfileRow = {
   id: string;
   role: UserRole;
   full_name: string;
@@ -38,7 +44,7 @@ export interface ProfileRow {
   updated_at: string;
 }
 
-export interface BrokerageRow {
+export type BrokerageRow = {
   id: string;
   name: string;
   city: string;
@@ -48,7 +54,7 @@ export interface BrokerageRow {
   updated_at: string;
 }
 
-export interface TradeRow {
+export type TradeRow = {
   key: TradeKey;
   label: string;
   code: string;
@@ -57,7 +63,7 @@ export interface TradeRow {
   is_active: boolean;
 }
 
-export interface TerritoryRow {
+export type TerritoryRow = {
   id: string;
   name: string;
   parish: string;
@@ -66,12 +72,12 @@ export interface TerritoryRow {
   created_at: string;
 }
 
-export interface TerritoryZipRow {
+export type TerritoryZipRow = {
   zip: string;
   territory_id: string;
 }
 
-export interface ContractorRow {
+export type ContractorRow = {
   id: string;
   business_name: string;
   contact_name: string;
@@ -98,7 +104,7 @@ export interface ContractorRow {
   updated_at: string;
 }
 
-export interface RepairRequestRow {
+export type RepairRequestRow = {
   id: string;
   reference: number;
   created_by: string;
@@ -120,7 +126,7 @@ export interface RepairRequestRow {
   updated_at: string;
 }
 
-export interface RepairItemRow {
+export type RepairItemRow = {
   id: string;
   request_id: string;
   trade_key: TradeKey;
@@ -132,7 +138,7 @@ export interface RepairItemRow {
   updated_at: string;
 }
 
-export interface OpportunityRow {
+export type OpportunityRow = {
   id: string;
   code: string;
   request_id: string;
@@ -149,7 +155,7 @@ export interface OpportunityRow {
   updated_at: string;
 }
 
-export interface OpportunityAssignmentRow {
+export type OpportunityAssignmentRow = {
   id: string;
   opportunity_id: string;
   contractor_id: string;
@@ -160,7 +166,7 @@ export interface OpportunityAssignmentRow {
   expires_at: string;
 }
 
-export interface QuoteRow {
+export type QuoteRow = {
   id: string;
   quote_number: string;
   opportunity_id: string;
@@ -176,7 +182,7 @@ export interface QuoteRow {
   updated_at: string;
 }
 
-export interface QuoteItemRow {
+export type QuoteItemRow = {
   id: string;
   quote_id: string;
   position: number;
@@ -186,7 +192,7 @@ export interface QuoteItemRow {
   created_at: string;
 }
 
-export interface AttachmentRow {
+export type AttachmentRow = {
   id: string;
   request_id: string | null;
   quote_id: string | null;
@@ -199,7 +205,7 @@ export interface AttachmentRow {
   created_at: string;
 }
 
-export interface NotificationRow {
+export type NotificationRow = {
   id: string;
   recipient_id: string;
   kind: NotificationKind;
@@ -217,7 +223,7 @@ export interface NotificationRow {
  * That omission is the privacy guarantee, enforced by the view definition in
  * supabase/migrations/0002_rls.sql rather than by frontend code.
  */
-export interface OfferedOpportunityRow {
+export type OfferedOpportunityRow = {
   opportunity_id: string;
   code: string;
   status: OpportunityStatus;
@@ -237,13 +243,47 @@ export interface OfferedOpportunityRow {
   estimate_deadline: string | null;
 }
 
+/**
+ * `Relationships` is required by postgrest-js's generic table shape. We do not
+ * use embedded-resource selects (`select('*, contractors(*)')`), so an empty
+ * list is accurate — every join in this codebase is done explicitly.
+ */
+/** Argument shape of public.submit_repair_request(). */
+export type SubmitRepairRequestPayload = {
+  address_line1: string;
+  city: string;
+  state: string;
+  zip: string;
+  mls_number: string | null;
+  transaction_type: TransactionType;
+  contact_name: string;
+  contact_brokerage: string;
+  contact_phone: string;
+  contact_email: string;
+  items: {
+    trade: TradeKey;
+    description: string;
+    urgency: UrgencyLevel;
+    estimate_deadline: string | null;
+    notes: string | null;
+  }[];
+}
+
+/** Return shape of public.submit_repair_request(). */
+export type SubmitRepairRequestResult = {
+  request_id: string;
+  reference: number;
+  opportunities: { id: string; code: string; trade: TradeKey; status: OpportunityStatus }[];
+}
+
 type Table<Row, Insert = Partial<Row>, Update = Partial<Row>> = {
   Row: Row;
   Insert: Insert;
   Update: Update;
+  Relationships: [];
 };
 
-export interface Database {
+export type Database = {
   public: {
     Tables: {
       profiles: Table<ProfileRow>;
@@ -264,9 +304,15 @@ export interface Database {
       notifications: Table<NotificationRow>;
     };
     Views: {
-      offered_opportunities: { Row: OfferedOpportunityRow };
+      offered_opportunities: { Row: OfferedOpportunityRow; Relationships: [] };
     };
-    Functions: Record<string, never>;
+    Functions: {
+      /** supabase/migrations/0006_functions.sql */
+      submit_repair_request: {
+        Args: { p_payload: SubmitRepairRequestPayload };
+        Returns: SubmitRepairRequestResult;
+      };
+    };
     Enums: {
       user_role: UserRole;
       transaction_type: TransactionType;

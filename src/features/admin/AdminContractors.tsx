@@ -6,11 +6,13 @@ import { Tabs } from '@/components/ui/Tabs';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
+import { Alert } from '@/components/ui/Alert';
 import { Toggle } from '@/components/ui/Toggle';
 import { Choice } from '@/components/ui/Choice';
 import { SelectField } from '@/components/ui/Field';
 import { MembershipBadge } from '@/components/ui/StatusBadge';
 import { useData } from '@/app/providers/DataProvider';
+import { useAction } from '@/lib/useAction';
 import { TRADES, tradeLabel } from '@/data/trades';
 import { territories } from '@/data/seed';
 import { MEMBERSHIP_STATUSES } from '@/data/statuses';
@@ -24,6 +26,7 @@ export function AdminContractors() {
   const { updateContractor } = useData();
   const [filter, setFilter] = useState<Filter>('all');
   const [editing, setEditing] = useState<Contractor | null>(null);
+  const { busy, error, run } = useAction();
 
   const pending = data.contractors.filter((c) => c.membership_status === 'pending_approval');
   const active = data.contractors.filter((c) => c.membership_status === 'active' && c.is_active);
@@ -124,6 +127,11 @@ export function AdminContractors() {
       >
         {live && (
           <div className="stack stack-5">
+            {error && (
+              <Alert tone="danger" title="That did not work">
+                {error}
+              </Alert>
+            )}
             <div className="dl">
               <div>
                 <div className="dl__term">Contact</div>
@@ -154,9 +162,11 @@ export function AdminContractors() {
             <SelectField
               label="Membership status"
               value={live.membership_status}
-              onChange={(e) =>
-                updateContractor(live.id, { membership_status: e.target.value as MembershipStatus })
-              }
+              disabled={busy}
+              onChange={(e) => {
+                const next = e.target.value as MembershipStatus;
+                void run(() => updateContractor(live.id, { membership_status: next }));
+              }}
               options={Object.values(MEMBERSHIP_STATUSES).map((m) => ({ value: m.value, label: m.label }))}
               hint="Only active and trial memberships receive opportunities."
             />
@@ -165,12 +175,14 @@ export function AdminContractors() {
               <Toggle
                 checked={live.is_active}
                 label="Account active"
-                onChange={(next) => updateContractor(live.id, { is_active: next })}
+                onChange={(next) => void run(() => updateContractor(live.id, { is_active: next }))}
               />
               <Toggle
                 checked={live.accepting_opportunities}
                 label="Accepting opportunities"
-                onChange={(next) => updateContractor(live.id, { accepting_opportunities: next })}
+                onChange={(next) =>
+                  void run(() => updateContractor(live.id, { accepting_opportunities: next }))
+                }
               />
             </div>
 
@@ -183,11 +195,13 @@ export function AdminContractors() {
                     selected={live.trades.includes(t.key)}
                     title={t.label}
                     onToggle={() =>
-                      updateContractor(live.id, {
-                        trades: live.trades.includes(t.key)
-                          ? live.trades.filter((x) => x !== t.key)
-                          : [...live.trades, t.key],
-                      })
+                      void run(() =>
+                        updateContractor(live.id, {
+                          trades: live.trades.includes(t.key)
+                            ? live.trades.filter((x) => x !== t.key)
+                            : [...live.trades, t.key],
+                        }),
+                      )
                     }
                   />
                 ))}
@@ -204,11 +218,13 @@ export function AdminContractors() {
                     title={t.name}
                     hint={`${t.parish} Parish`}
                     onToggle={() =>
-                      updateContractor(live.id, {
-                        territory_ids: live.territory_ids.includes(t.id)
-                          ? live.territory_ids.filter((x) => x !== t.id)
-                          : [...live.territory_ids, t.id],
-                      })
+                      void run(() =>
+                        updateContractor(live.id, {
+                          territory_ids: live.territory_ids.includes(t.id)
+                            ? live.territory_ids.filter((x) => x !== t.id)
+                            : [...live.territory_ids, t.id],
+                        }),
+                      )
                     }
                   />
                 ))}

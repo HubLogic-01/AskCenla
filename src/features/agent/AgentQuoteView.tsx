@@ -8,6 +8,7 @@ import { Alert } from '@/components/ui/Alert';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QuoteDocument } from '@/components/shared/QuoteDocument';
 import { useData } from '@/app/providers/DataProvider';
+import { useAction } from '@/lib/useAction';
 import { contractorById } from '@/lib/selectors';
 import { isExpired, quoteTotals } from '@/lib/quotes';
 import { money, shortDate } from '@/lib/format';
@@ -17,6 +18,7 @@ export function AgentQuoteView() {
   const data = useData();
   const { decideQuote } = useData();
   const [confirming, setConfirming] = useState<'accepted' | 'declined' | null>(null);
+  const { busy, error, run } = useAction();
 
   const quote = data.quotes.find((q) => q.id === quoteId);
   if (!quote) {
@@ -56,6 +58,14 @@ export function AgentQuoteView() {
           ) : undefined
         }
       />
+
+      {error && (
+        <div style={{ marginBottom: 'var(--sp-5)' }}>
+          <Alert tone="danger" title="That did not work">
+            {error}
+          </Alert>
+        </div>
+      )}
 
       {quote.status === 'accepted' && (
         <div style={{ marginBottom: 'var(--sp-5)' }}>
@@ -104,9 +114,14 @@ export function AgentQuoteView() {
             </Button>
             <Button
               variant={confirming === 'accepted' ? 'success' : 'danger'}
+              disabled={busy}
               onClick={() => {
-                if (confirming) decideQuote(quote.id, confirming);
-                setConfirming(null);
+                const decision = confirming;
+                if (!decision) return;
+                void run(async () => {
+                  await decideQuote(quote.id, decision);
+                  setConfirming(null);
+                });
               }}
             >
               {confirming === 'accepted' ? 'Yes, accept quote' : 'Yes, decline quote'}

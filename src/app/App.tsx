@@ -4,17 +4,18 @@ import { DataProvider } from './providers/DataProvider';
 import { AppRoutes } from './router';
 
 /**
- * Provider order matters: DataProvider holds marketplace records, AuthProvider
- * decides who is looking at them, and the router renders the right screen.
+ * Provider order matters. AuthProvider must be OUTSIDE DataProvider: the data
+ * layer loads whatever the signed-in user is allowed to see, so it needs to
+ * know who that is, and it reloads when they change.
  */
 export default function App() {
   return (
     <BrowserRouter>
-      <DataProvider>
-        <AuthProvider>
+      <AuthProvider>
+        <DataProvider>
           <AppRoutes />
-        </AuthProvider>
-      </DataProvider>
+        </DataProvider>
+      </AuthProvider>
     </BrowserRouter>
   );
 }

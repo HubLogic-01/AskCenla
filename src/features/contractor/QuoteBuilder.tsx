@@ -10,6 +10,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Modal } from '@/components/ui/Modal';
 import { QuoteDocument } from '@/components/shared/QuoteDocument';
 import { useAuth } from '@/app/providers/AuthProvider';
+import { useAction } from '@/lib/useAction';
 import { useData } from '@/app/providers/DataProvider';
 import { requestForOpportunity } from '@/lib/selectors';
 import { uuid } from '@/lib/ids';
@@ -33,6 +34,7 @@ export function QuoteBuilder() {
   const [draft, setDraft] = useState<Quote | null>(stored ?? null);
   const [confirmSubmit, setConfirmSubmit] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  const { busy, error, run } = useAction();
 
   useEffect(() => {
     if (stored && !draft) setDraft(stored);
@@ -97,8 +99,10 @@ export function QuoteBuilder() {
 
   function save() {
     if (!draft) return;
-    saveQuote(draft);
-    setSavedAt(new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
+    void run(async () => {
+      await saveQuote(draft);
+      setSavedAt(new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
+    });
   }
 
   // -------------------------------------------------------------- read-only
@@ -128,17 +132,29 @@ export function QuoteBuilder() {
         description={request ? `${request.address_line1}, ${request.city}, ${request.state}` : undefined}
         actions={
           <>
-            <Button variant="secondary" onClick={save}>
+            <Button variant="secondary" onClick={save} disabled={busy}>
               Save draft
             </Button>
-            <Button icon="check" onClick={() => setConfirmSubmit(true)} disabled={draft.items.length === 0}>
+            <Button
+              icon="check"
+              onClick={() => setConfirmSubmit(true)}
+              disabled={draft.items.length === 0 || busy}
+            >
               Submit to agent
             </Button>
           </>
         }
       />
 
-      {savedAt && (
+      {error && (
+        <div style={{ marginBottom: 'var(--sp-5)' }}>
+          <Alert tone="danger" title="That did not work">
+            {error}
+          </Alert>
+        </div>
+      )}
+
+      {savedAt && !error && (
         <div style={{ marginBottom: 'var(--sp-5)' }}>
           <Alert tone="success">Draft saved at {savedAt}. The agent cannot see it until you submit.</Alert>
         </div>
@@ -265,10 +281,14 @@ export function QuoteBuilder() {
             </div>
           </CardBody>
           <CardFooter>
-            <Button variant="secondary" onClick={save}>
+            <Button variant="secondary" onClick={save} disabled={busy}>
               Save draft
             </Button>
-            <Button icon="check" onClick={() => setConfirmSubmit(true)} disabled={draft.items.length === 0}>
+            <Button
+              icon="check"
+              onClick={() => setConfirmSubmit(true)}
+              disabled={draft.items.length === 0 || busy}
+            >
               Submit to agent
             </Button>
           </CardFooter>
@@ -290,14 +310,17 @@ export function QuoteBuilder() {
               Keep editing
             </Button>
             <Button
+              disabled={busy}
               onClick={() => {
-                saveQuote(draft);
-                submitQuote(draft.id);
-                setConfirmSubmit(false);
-                navigate('/contractor/quotes');
+                void run(async () => {
+                  await saveQuote(draft);
+                  await submitQuote(draft.id);
+                  setConfirmSubmit(false);
+                  navigate('/contractor/quotes');
+                });
               }}
             >
-              Submit quote
+              {busy ? 'Submitting…' : 'Submit quote'}
             </Button>
           </>
         }

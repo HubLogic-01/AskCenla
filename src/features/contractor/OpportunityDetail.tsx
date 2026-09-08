@@ -11,6 +11,7 @@ import { SelectField } from '@/components/ui/Field';
 import { OpportunityStatusBadge, UrgencyBadge } from '@/components/ui/StatusBadge';
 import { AttachmentList } from '@/components/shared/AttachmentList';
 import { useAuth } from '@/app/providers/AuthProvider';
+import { useAction } from '@/lib/useAction';
 import { useData } from '@/app/providers/DataProvider';
 import { isPendingOffer, itemForOpportunity, quotesForOpportunity, requestForOpportunity } from '@/lib/selectors';
 import { getTrade } from '@/data/trades';
@@ -36,6 +37,7 @@ export function OpportunityDetail() {
   const { acceptOpportunity, declineOpportunity, createDraftQuote, setOpportunityStatus } = useData();
   const navigate = useNavigate();
   const [confirmDecline, setConfirmDecline] = useState(false);
+  const { busy, error, run } = useAction();
 
   const contractor = data.contractors.find((c) => c.id === profile?.contractor_id);
   const opportunity = data.opportunities.find((o) => o.id === opportunityId);
@@ -88,6 +90,14 @@ export function OpportunityDetail() {
         }
         actions={<OpportunityStatusBadge status={opportunity.status} />}
       />
+
+      {error && (
+        <div style={{ marginBottom: 'var(--sp-5)' }}>
+          <Alert tone="danger" title="That did not work">
+            {error}
+          </Alert>
+        </div>
+      )}
 
       {offer && (
         <div style={{ marginBottom: 'var(--sp-5)' }}>
@@ -205,9 +215,12 @@ export function OpportunityDetail() {
                   <Button
                     size="sm"
                     icon="plus"
+                    disabled={busy}
                     onClick={() => {
-                      const quote = createDraftQuote(opportunity.id, contractor.id);
-                      navigate(`/contractor/quotes/${quote.id}`);
+                      void run(async () => {
+                        const quote = await createDraftQuote(opportunity.id, contractor.id);
+                        navigate(`/contractor/quotes/${quote.id}`);
+                      });
                     }}
                   >
                     Build quote
@@ -250,7 +263,11 @@ export function OpportunityDetail() {
               <SelectField
                 label="Current status"
                 value={opportunity.status}
-                onChange={(e) => setOpportunityStatus(opportunity.id, e.target.value as OpportunityStatus)}
+                disabled={busy}
+                onChange={(e) => {
+                  const next = e.target.value as OpportunityStatus;
+                  void run(() => setOpportunityStatus(opportunity.id, next));
+                }}
                 options={CONTRACTOR_STATUSES.map((s) => ({
                   value: s,
                   label: s.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase()),
@@ -266,11 +283,12 @@ export function OpportunityDetail() {
           <Button
             size="lg"
             icon="check"
-            onClick={() => acceptOpportunity(opportunity.id, contractor.id)}
+            disabled={busy}
+            onClick={() => void run(() => acceptOpportunity(opportunity.id, contractor.id))}
           >
-            Accept opportunity
+            {busy ? 'Working…' : 'Accept opportunity'}
           </Button>
-          <Button size="lg" variant="secondary" onClick={() => setConfirmDecline(true)}>
+          <Button size="lg" variant="secondary" disabled={busy} onClick={() => setConfirmDecline(true)}>
             Decline
           </Button>
         </div>
@@ -287,10 +305,13 @@ export function OpportunityDetail() {
             </Button>
             <Button
               variant="danger"
+              disabled={busy}
               onClick={() => {
-                declineOpportunity(opportunity.id, contractor.id);
-                setConfirmDecline(false);
-                navigate('/contractor/opportunities');
+                void run(async () => {
+                  await declineOpportunity(opportunity.id, contractor.id);
+                  setConfirmDecline(false);
+                  navigate('/contractor/opportunities');
+                });
               }}
             >
               Yes, decline
