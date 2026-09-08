@@ -34,21 +34,40 @@ type Filter = 'attention' | 'routing' | 'all';
  */
 export function AdminRouting() {
   const data = useData();
-  const { rerouteOpportunity } = useData();
+  const { rerouteOpportunity, runOfferSweep } = useData();
   const [filter, setFilter] = useState<Filter>('attention');
   const [expanded, setExpanded] = useState<string | null>(null);
   const { busy, error, run } = useAction();
+  const [sweepResult, setSweepResult] = useState<number | null>(null);
 
   const unmatched = data.opportunities.filter((o) => o.status === 'awaiting_contractor');
   const routing = data.opportunities.filter((o) => ['offered', 'matching'].includes(o.status));
-  const expired = findExpiredOffers(data.assignments);
+  // Same filter app.expire_stale_offers() applies: an offer only counts as
+  // sweepable while its opportunity is still waiting on that answer.
+  const expired = findExpiredOffers(data.assignments).filter(
+    (a) => data.opportunities.find((o) => o.id === a.opportunity_id)?.status === 'offered',
+  );
   const shown = filter === 'attention' ? unmatched : filter === 'routing' ? routing : [...unmatched, ...routing];
 
   return (
     <>
       <PageHeader
         title="Routing Monitor"
-        description={`Opportunities are offered to one contractor at a time, up to ${MAX_CONTRACTORS_PER_TRADE} per trade per territory. This screen shows anything the automation could not finish on its own.`}
+        description={`Opportunities are offered to one contractor at a time, up to ${MAX_CONTRACTORS_PER_TRADE} per trade per territory. Lapsed offers advance on their own every 15 minutes — this screen shows what the automation could not finish.`}
+        actions={
+          <Button
+            variant="secondary"
+            icon="clock"
+            disabled={busy}
+            onClick={() =>
+              void run(async () => {
+                setSweepResult(await runOfferSweep());
+              })
+            }
+          >
+            {busy ? 'Running…' : 'Run sweep now'}
+          </Button>
+        }
       />
 
       {error && (
@@ -59,10 +78,21 @@ export function AdminRouting() {
         </div>
       )}
 
+      {sweepResult !== null && (
+        <div style={{ marginBottom: 'var(--sp-5)' }}>
+          <Alert tone={sweepResult > 0 ? 'success' : 'info'}>
+            {sweepResult === 0
+              ? 'Nothing to advance — every outstanding offer is still inside its response window.'
+              : `Advanced ${sweepResult} lapsed offer${sweepResult === 1 ? '' : 's'} to the next contractor.`}
+          </Alert>
+        </div>
+      )}
+
       {expired.length > 0 && (
         <div style={{ marginBottom: 'var(--sp-5)' }}>
           <Alert tone="warning" title={`${expired.length} offer${expired.length === 1 ? '' : 's'} past the response window`}>
-            In Phase 9 a scheduled job advances these automatically. Until then you can advance them here.
+            These advance automatically on the next scheduled sweep. Use “Run sweep now” if you would
+            rather not wait.
           </Alert>
         </div>
       )}

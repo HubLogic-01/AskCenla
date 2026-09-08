@@ -118,6 +118,7 @@ order**, pasting the contents of each and clicking *Run*:
 | 4 | `supabase/migrations/0004_auth.sql` | Creates a profile on sign-up |
 | 5 | `supabase/migrations/0005_reference_data.sql` | Trades and territories |
 | 6 | `supabase/migrations/0006_functions.sql` | Request submission + the routing engine |
+| 7 | `supabase/migrations/0007_routing_automation.sql` | Auto-routing, the expiry sweep, status history |
 
 Do **not** run `supabase/tests/00_local_harness.sql` — that file only exists to
 fake Supabase's own `auth` and `storage` schemas when testing on a plain
@@ -135,7 +136,28 @@ npm run dev
 
 The **DEMO DATA** badge disappears once Supabase is connected.
 
-### 5. Create your admin account
+### 5. Turn on the scheduled sweep
+
+Routing offers each opportunity to one contractor at a time, with a 24-hour
+window to respond. A scheduled job advances lapsed offers to the next
+contractor — that is what makes the platform run without you.
+
+It needs the `pg_cron` extension, which is off by default:
+
+1. **Database → Extensions**, search `pg_cron`, enable it.
+2. Re-run `supabase/migrations/0007_routing_automation.sql`. It is safe to run
+   again, and this time it schedules the job instead of printing a notice.
+
+Check it took with:
+
+```sql
+select jobname, schedule, active from cron.job;
+```
+
+If you skip this, nothing breaks — offers simply never expire on their own, and
+an admin advances them with **Run sweep now** on the Routing Monitor.
+
+### 6. Create your admin account
 
 Sign up through the app, then in the SQL Editor run:
 
@@ -166,8 +188,9 @@ npm run db:test
 
 This builds a throwaway PostgreSQL database, applies every migration and the
 seed, then signs in as each demo user and asserts exactly what they can and
-cannot read, and what happens when they submit a repair request — 65
-assertions covering agent, broker, contractor and admin.
+cannot read, what happens when they submit a repair request, and what the
+automation does when nobody is watching — 90 assertions covering agent,
+broker, contractor and admin.
 
 It needs a local PostgreSQL server (`psql`, `createdb`) but **not** a Supabase
 project: `supabase/tests/00_local_harness.sql` stubs the pieces of Supabase the
@@ -186,6 +209,10 @@ Among the things it proves:
 - a submitted request creates exactly one routed opportunity per trade, and
   ownership comes from the session rather than the payload
 - routing skips a past-due contractor with no admin involvement
+- a lapsed offer advances to the next contractor, and a lapsed offer on a job
+  someone already accepted is left alone
+- exhausting the contractor ladder notifies the agent and the platform owner,
+  once, not once per sweep
 
 ---
 
@@ -260,6 +287,11 @@ Full reasoning behind these choices is in
   wizard submits through one transactional Postgres function that also routes
   every trade, and inspection reports upload to the private bucket and open
   through expiring signed URLs.
+
+- **Phase 4** — routing automation. Opportunities route themselves on creation,
+  lapsed offers advance on a schedule, exhausting the contractor ladder tells
+  the agent and the platform owner, every status change is recorded, and a
+  request's status follows its trades instead of saying "Submitted" forever.
 
 **Contractor accept/decline and the quote builder are still demo-only.** They
 need their own server-side functions, which is Phase 5 and Phase 6 — see

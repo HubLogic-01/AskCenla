@@ -14,7 +14,8 @@ import type {
 import * as seed from '@/data/seed';
 import { getTrade } from '@/data/trades';
 import { opportunityCode, quoteNumber, uuid } from '@/lib/ids';
-import { routeOpportunity } from '@/lib/matching';
+import { findExpiredOffers, routeOpportunity } from '@/lib/matching';
+import { deriveRequestStatus } from '@/lib/requestStatus';
 import {
   EMPTY_WORKSPACE,
   type NewRequestDraft,
@@ -55,6 +56,39 @@ class MockRepository implements Repository {
     // it, exactly as they do for the Supabase path where RLS has already
     // filtered. Same code, same result.
     return { ...this.store };
+  }
+
+  /**
+   * Mirrors app.sync_request_status(): a request's status follows its
+   * opportunities. Called wherever an opportunity status changes, which is
+   * what the AFTER UPDATE trigger does server-side.
+   */
+  private syncRequestStatus(requestId: string) {
+    const opportunities = this.store.opportunities.filter((o) => o.request_id === requestId);
+    this.store.requests = this.store.requests.map((r) => {
+      if (r.id !== requestId) return r;
+      const next = deriveRequestStatus(r.status, opportunities);
+      return next === r.status ? r : { ...r, status: next, updated_at: new Date().toISOString() };
+    });
+  }
+
+  /** Mirrors app.notify_unmatched(): tell the agent when the ladder runs out. */
+  private notifyUnmatched(opportunityId: string) {
+    const opportunity = this.store.opportunities.find((o) => o.id === opportunityId);
+    const request = this.store.requests.find((r) => r.id === opportunity?.request_id);
+    if (!opportunity || !request) return;
+
+    const alreadyTold = this.store.notifications.some(
+      (n) => n.kind === 'reminder' && n.title.includes(opportunity.code),
+    );
+    if (alreadyTold) return;
+
+    this.notify(request.created_by, {
+      kind: 'reminder',
+      title: `${getTrade(opportunity.trade).label} (${opportunity.code}) still needs a contractor`,
+      body: 'Every matching contractor has been approached. AskCENLA is expanding the search — you do not need to do anything.',
+      link: `/agent/properties/${request.id}`,
+    });
   }
 
   private notify(
@@ -190,6 +224,8 @@ class MockRepository implements Repository {
         : a,
     );
 
+    if (opportunity) this.syncRequestStatus(opportunity.request_id);
+
     const request = this.store.requests.find((r) => r.id === opportunity?.request_id);
     const contractor = this.store.contractors.find((c) => c.id === contractorId);
     if (opportunity && request && contractor) {
@@ -236,6 +272,9 @@ class MockRepository implements Repository {
       ),
       ...(decision.assignment ? [decision.assignment] : []),
     ];
+
+    if (!decision.assignment) this.notifyUnmatched(opportunityId);
+    this.syncRequestStatus(opportunity.request_id);
   }
 
   async setOpportunityStatus(opportunityId: string, status: OpportunityStatus): Promise<void> {
@@ -243,6 +282,8 @@ class MockRepository implements Repository {
     this.store.opportunities = this.store.opportunities.map((o) =>
       o.id === opportunityId ? { ...o, status, updated_at: nowIso } : o,
     );
+    const opportunity = this.store.opportunities.find((o) => o.id === opportunityId);
+    if (opportunity) this.syncRequestStatus(opportunity.request_id);
   }
 
   async rerouteOpportunity(opportunityId: string): Promise<void> {
@@ -265,7 +306,31 @@ class MockRepository implements Repository {
     );
     if (decision.assignment) {
       this.store.assignments = [...this.store.assignments, decision.assignment];
+    } else {
+      this.notifyUnmatched(opportunityId);
     }
+  }
+
+  /**
+   * Mirrors app.expire_stale_offers(): advance every offer whose response
+   * window has lapsed. Server-side this runs on a schedule; here it is the
+   * same logic so the admin's manual sweep works on demo data too.
+   */
+  async runOfferSweep(): Promise<number> {
+    const lapsed = findExpiredOffers(this.store.assignments).filter((assignment) => {
+      const opportunity = this.store.opportunities.find((o) => o.id === assignment.opportunity_id);
+      // Leave alone anything a contractor has already taken on.
+      return opportunity?.status === 'offered';
+    });
+
+    const nowIso = new Date().toISOString();
+    for (const assignment of lapsed) {
+      this.store.assignments = this.store.assignments.map((a) =>
+        a.id === assignment.id ? { ...a, outcome: 'expired' as const, responded_at: nowIso } : a,
+      );
+      await this.rerouteOpportunity(assignment.opportunity_id);
+    }
+    return lapsed.length;
   }
 
   // -------------------------------------------------------------------------
@@ -324,6 +389,8 @@ class MockRepository implements Repository {
     );
 
     const opportunity = this.store.opportunities.find((o) => o.id === quote.opportunity_id);
+    if (opportunity) this.syncRequestStatus(opportunity.request_id);
+
     const request = this.store.requests.find((r) => r.id === opportunity?.request_id);
     const contractor = this.store.contractors.find((c) => c.id === quote.contractor_id);
     if (opportunity && request && contractor) {
@@ -351,6 +418,8 @@ class MockRepository implements Repository {
     );
 
     const opportunity = this.store.opportunities.find((o) => o.id === quote.opportunity_id);
+    if (opportunity) this.syncRequestStatus(opportunity.request_id);
+
     const contractorProfile = seed.profiles.find((p) => p.contractor_id === quote.contractor_id);
     if (opportunity && contractorProfile) {
       this.notify(contractorProfile.id, {

@@ -621,8 +621,10 @@ export const opportunities: Opportunity[] = [
   { id: 'opp-1043-f', code: '1043-F', request_id: 'req-1043', repair_item_id: 'itm-1043-f', trade: 'foundation', territory_id: 'ter-alex', status: 'accepted', contractor_id: 'con-gen-1', routing_position: 0, offered_at: at(-3), offer_expires_at: at(-2), accepted_at: at(-3, 5), created_at: at(-3), updated_at: at(-3, 5) },
   { id: 'opp-1043-l', code: '1043-L', request_id: 'req-1043', repair_item_id: 'itm-1043-l', trade: 'tree_landscaping', territory_id: 'ter-alex', status: 'offered', contractor_id: null, routing_position: 0, offered_at: at(0, -5), offer_expires_at: at(0, 19), accepted_at: null, created_at: at(-3), updated_at: at(0, -5) },
 
+  // 1044-P below is deliberately an offer that lapsed without a response: it
+  // is what the scheduled sweep on the Routing Monitor advances.
   { id: 'opp-1044-h', code: '1044-H', request_id: 'req-1044', repair_item_id: 'itm-1044-h', trade: 'hvac', territory_id: 'ter-pine', status: 'quote_in_progress', contractor_id: 'con-hvac-2', routing_position: 1, offered_at: at(-1), offer_expires_at: at(0), accepted_at: at(-1, 6), created_at: at(-2), updated_at: at(-1, 6) },
-  { id: 'opp-1044-p', code: '1044-P', request_id: 'req-1044', repair_item_id: 'itm-1044-p', trade: 'plumbing', territory_id: 'ter-pine', status: 'offered', contractor_id: null, routing_position: 0, offered_at: at(0, -8), offer_expires_at: at(0, 16), accepted_at: null, created_at: at(-2), updated_at: at(0, -8) },
+  { id: 'opp-1044-p', code: '1044-P', request_id: 'req-1044', repair_item_id: 'itm-1044-p', trade: 'plumbing', territory_id: 'ter-pine', status: 'offered', contractor_id: null, routing_position: 0, offered_at: at(-2, -3), offer_expires_at: at(0, -3), accepted_at: null, created_at: at(-2), updated_at: at(-2, -3) },
   { id: 'opp-1044-o', code: '1044-O', request_id: 'req-1044', repair_item_id: 'itm-1044-o', trade: 'flooring', territory_id: 'ter-pine', status: 'awaiting_contractor', contractor_id: null, routing_position: 0, offered_at: null, offer_expires_at: null, accepted_at: null, created_at: at(-2), updated_at: at(-2) },
 
   { id: 'opp-1045-r', code: '1045-R', request_id: 'req-1045', repair_item_id: 'itm-1045-r', trade: 'roofing', territory_id: 'ter-ball', status: 'offered', contractor_id: null, routing_position: 0, offered_at: at(-1), offer_expires_at: at(0, 4), accepted_at: null, created_at: at(-1), updated_at: at(-1) },
@@ -649,7 +651,7 @@ export const opportunityAssignments: OpportunityAssignment[] = [
   { id: 'asg-7', opportunity_id: 'opp-1043-l', contractor_id: 'con-tree-1', position: 0, outcome: 'pending', offered_at: at(0, -5), responded_at: null, expires_at: at(0, 19) },
   { id: 'asg-8', opportunity_id: 'opp-1044-h', contractor_id: 'con-hvac-1', position: 0, outcome: 'declined', offered_at: at(-2), responded_at: at(-1, -6), expires_at: at(-1) },
   { id: 'asg-9', opportunity_id: 'opp-1044-h', contractor_id: 'con-hvac-2', position: 1, outcome: 'accepted', offered_at: at(-1), responded_at: at(-1, 6), expires_at: at(0) },
-  { id: 'asg-10', opportunity_id: 'opp-1044-p', contractor_id: 'con-plumb-1', position: 0, outcome: 'pending', offered_at: at(0, -8), responded_at: null, expires_at: at(0, 16) },
+  { id: 'asg-10', opportunity_id: 'opp-1044-p', contractor_id: 'con-plumb-1', position: 0, outcome: 'pending', offered_at: at(-2, -3), responded_at: null, expires_at: at(0, -3) },
   { id: 'asg-11', opportunity_id: 'opp-1045-r', contractor_id: 'con-roof-1', position: 0, outcome: 'pending', offered_at: at(-1), responded_at: null, expires_at: at(0, 4) },
   { id: 'asg-12', opportunity_id: 'opp-1046-p', contractor_id: 'con-plumb-1', position: 0, outcome: 'accepted', offered_at: at(-28), responded_at: at(-28, 2), expires_at: at(-27) },
   { id: 'asg-13', opportunity_id: 'opp-1046-n', contractor_id: 'con-gen-1', position: 0, outcome: 'accepted', offered_at: at(-27), responded_at: at(-27, 4), expires_at: at(-26) },

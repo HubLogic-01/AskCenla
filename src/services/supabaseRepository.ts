@@ -528,6 +528,14 @@ class SupabaseRepository implements Repository {
     if (error) throw new Error(error.message);
   }
 
+  async runOfferSweep(): Promise<number> {
+    // Server-side this also runs on a pg_cron schedule; the RPC exists so an
+    // administrator does not have to wait for the next tick.
+    const { data, error } = await this.db.rpc('run_offer_sweep');
+    if (error) throw new Error(error.message);
+    return data ?? 0;
+  }
+
   async markNotificationRead(notificationId: string): Promise<void> {
     const { error } = await this.db
       .from('notifications')

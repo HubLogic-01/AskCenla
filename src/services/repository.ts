@@ -134,6 +134,13 @@ export interface Repository {
 
   updateContractor(contractorId: string, patch: Partial<Contractor>): Promise<void>;
 
+  /**
+   * Expires offers whose response window has lapsed and advances each one to
+   * the next contractor. Runs on a schedule server-side; this is the manual
+   * trigger for an administrator. Returns how many offers were advanced.
+   */
+  runOfferSweep(): Promise<number>;
+
   markNotificationRead(notificationId: string): Promise<void>;
   markAllNotificationsRead(recipientId: string): Promise<void>;
 

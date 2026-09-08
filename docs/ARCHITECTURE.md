@@ -305,16 +305,43 @@ Decisions worth knowing:
   on every routing decision and every dashboard; recomputing them from
   `opportunity_assignments` each time would be wasteful.
 
-## 7. Automation philosophy in the code
+## 7. Automation in practice
 
-The brief calls for a platform an owner with a full-time job can run. Concretely:
+The brief calls for a platform an owner with a full-time job can run. That is a
+claim about what happens when nobody is looking, so it is implemented in the
+database rather than in a browser tab that may not be open.
 
-- Opportunity creation routes immediately. No admin step exists in the normal path.
-- A `past_due` membership stops routing by itself; no one has to remember to switch it off.
-- `findExpiredOffers()` makes lapsed offers a query, not a manual review.
-- The Routing Monitor surfaces only **exceptions** — unmatched opportunities and
-  coverage gaps — and explains each one, so the owner recruits for a gap rather
-  than dispatching jobs.
+| Job | Mechanism | Where |
+|---|---|---|
+| Route a new opportunity | `AFTER INSERT` trigger on `opportunities` | 0007 |
+| Advance a lapsed offer | `app.expire_stale_offers()` on a 15-minute `pg_cron` schedule | 0007 |
+| Stop routing to a past-due membership | eligibility rule in `app.eligible_contractors()` | 0006 |
+| Tell someone the ladder ran out | `app.notify_unmatched()`, once per opportunity | 0007 |
+| Keep a request's status truthful | `app.sync_request_status()` trigger | 0007 |
+| Record what changed | `app.record_status_change()` trigger | 0007 |
+
+Three design notes worth keeping:
+
+**Routing has exactly one entry point.** Creating an opportunity, a contractor
+declining, an offer expiring and an admin clicking "Offer to next" all call
+`app.route_opportunity()`. Adding a new way to trigger routing means calling
+that function, not reimplementing the rules — which is why the scheduled sweep
+was a small addition rather than a second engine.
+
+**`status = 'matching'` is a request to be routed**, not a description. That
+one-word contract is what lets the same table hold both automatically routed
+work and deliberately hand-placed work, and it is how the demo seed keeps a
+ladder containing a decline and an expiry that live routing would otherwise
+overwrite.
+
+**The sweep is a function taking `now`, not a job reading the clock.** That is
+the difference between an automation you can test and one you can only watch.
+`supabase/tests/03_automation_test.sql` proves the 24-hour behaviour in
+milliseconds.
+
+Everything above surfaces exceptions rather than queuing work: the Routing
+Monitor shows only what the automation could not finish, and explains why per
+contractor. The owner recruits for a coverage gap instead of dispatching jobs.
 
 ## 8. What is intentionally not built
 

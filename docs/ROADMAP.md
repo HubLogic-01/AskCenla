@@ -89,17 +89,50 @@ a client cannot forge.
 
 ---
 
-### Phase 4 — Routing hardening ← **next**
+### ✅ Phase 4 — Routing automation *(complete)*
 
-Routing already runs server-side inside the submit function. What is left is
-making it survive things nobody is watching:
+The point of this phase: the platform keeps working when nobody is watching it.
 
-1. Move the call to an `AFTER INSERT` trigger on `opportunities`, so any future
-   way of creating one routes automatically.
-2. A `pg_cron` job that finds lapsed offers (`outcome = 'pending' and
-   expires_at < now()`), marks them `expired` and calls `app.route_opportunity`
-   again — the automatic reassignment the architecture was built for.
-3. Record every status change in `status_history`.
+**Delivered** (`supabase/migrations/0007_routing_automation.sql`):
+
+- **Routing on insert.** An `AFTER INSERT` trigger routes any opportunity
+  created with status `matching`, so a future email intake, bulk import or
+  admin action is routed the same way the wizard is. Creating one with any
+  other status opts out, which is how the demo seed keeps its hand-authored
+  ladder.
+- **The expiry sweep.** `app.expire_stale_offers()` marks lapsed offers
+  expired and advances each opportunity to the next contractor, through the
+  same `app.route_opportunity()` entry point routing has always used. It takes
+  `now` as a parameter so it is testable in milliseconds rather than over 24
+  hours. Scheduled every 15 minutes via `pg_cron`, and exposed to
+  administrators as `public.run_offer_sweep()` behind a **Run sweep now**
+  button on the Routing Monitor.
+- **Exhaustion is reported to a human.** When no contractor remains, the agent
+  is told their trade is being sourced and every admin is told there is a
+  coverage gap — once per opportunity, not once per sweep.
+- **Status history.** Recorded by trigger on opportunities, requests and
+  quotes, so it cannot be forgotten at a call site and is correct regardless of
+  what made the change.
+- **A request's status follows its trades.** `app.sync_request_status()` keeps
+  the parent truthful; before this a request said "Submitted" forever because
+  nothing ever updated it. Mirrored in `src/lib/requestStatus.ts` so demo mode
+  behaves identically.
+
+*Verified:* 90/90 database assertions pass, including that a stale offer on a
+job someone already accepted is **not** swept, and that the sweep advances
+1044-P from Wiley Plumbing to Red River Plumbing with the ladder recorded
+correctly. Exercised in the browser end to end.
+
+Two bugs surfaced while testing. The harness's `auth.uid()` stub cast an empty
+GUC straight to `jsonb`, which throws rather than returning null — so any
+server-side call with no session failed the moment status history read it; it
+now guards with `nullif` exactly as Supabase's own definition does. And the
+demo seed created opportunities as `matching`, which the new trigger correctly
+started routing over the top of the hand-authored ladder.
+
+**Still manual:** `status_history` has no UI yet. It is the audit backbone for
+Phase 9 notifications and would sit naturally on the property dashboard as an
+activity timeline — that is Phase 7 work, not routing work.
 
 ---
 

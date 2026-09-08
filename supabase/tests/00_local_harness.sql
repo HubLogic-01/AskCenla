@@ -61,12 +61,18 @@ create table if not exists auth.identities (
 
 -- Same behaviour as Supabase: read the subject out of the request's JWT claims.
 -- Tests set the claims GUC directly to impersonate a user.
+--
+-- NOTE the nullif() BEFORE the ::jsonb cast, matching Supabase's own
+-- definition. An unset GUC reads back as an empty string, and ''::jsonb raises
+-- "invalid input syntax for type json" rather than returning null. Without the
+-- guard, every server-side call with no session — which is most of the
+-- platform's own code — fails as soon as anything reads auth.uid().
 create or replace function auth.uid()
 returns uuid
 language sql
 stable
 as $$
-  select nullif(current_setting('request.jwt.claims', true)::jsonb ->> 'sub', '')::uuid;
+  select nullif(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub', '')::uuid;
 $$;
 
 create or replace function auth.role()
@@ -74,7 +80,10 @@ returns text
 language sql
 stable
 as $$
-  select coalesce(current_setting('request.jwt.claims', true)::jsonb ->> 'role', 'anon');
+  select coalesce(
+    nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role',
+    'anon'
+  );
 $$;
 
 create or replace function auth.email()
@@ -82,7 +91,7 @@ returns text
 language sql
 stable
 as $$
-  select current_setting('request.jwt.claims', true)::jsonb ->> 'email';
+  select nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'email';
 $$;
 
 grant usage on schema auth to authenticated, service_role, anon;

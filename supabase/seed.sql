@@ -286,9 +286,14 @@ on conflict (request_id, trade_key) do nothing;
 -- ---------------------------------------------------------------------------
 -- 6. Opportunities — exactly one per repair item.
 -- The opportunities_set_code trigger derives "1042-P" and friends.
+--
+-- Inserted as 'new', NOT 'matching'. Since 0007 an opportunity created as
+-- 'matching' routes itself immediately, which is right for a real submission
+-- and wrong here: this demo data has a hand-authored routing ladder below
+-- (including a decline and an expiry) that live routing would overwrite.
 -- ---------------------------------------------------------------------------
 insert into public.opportunities (request_id, repair_item_id, trade_key, territory_id, status, created_at)
-select i.request_id, i.id, i.trade_key, r.territory_id, 'matching', i.created_at
+select i.request_id, i.id, i.trade_key, r.territory_id, 'new', i.created_at
 from public.repair_items i
 join public.repair_requests r on r.id = i.request_id
 where not exists (select 1 from public.opportunities o where o.repair_item_id = i.id);
@@ -312,7 +317,7 @@ from (values
   (1043, 'foundation',       'accepted',             'c0000000-0000-4000-8000-00000000000a', 0,  72, null,  67),
   (1043, 'tree_landscaping', 'offered',              null,                                   0,   5,   19, null),
   (1044, 'hvac',             'quote_in_progress',    'c0000000-0000-4000-8000-000000000007', 1,  24, null,  18),
-  (1044, 'plumbing',         'offered',              null,                                   0,   8,   16, null),
+  (1044, 'plumbing',         'offered',              null,                                   0,  51,  -27, null),
   (1044, 'flooring',         'awaiting_contractor',  null,                                   0, null, null, null),
   (1045, 'roofing',          'offered',              null,                                   0,  24,    4, null),
   (1046, 'plumbing',         'completed',            'c0000000-0000-4000-8000-000000000001', 0, 672, null, 670),
@@ -326,6 +331,10 @@ where o.trade_key = v.trade
 
 -- ---------------------------------------------------------------------------
 -- 7. The routing ladder — every offer that was ever made
+--
+-- 1044-P is deliberately an offer that lapsed without a response, so a fresh
+-- database demonstrates the scheduled sweep advancing it to the next
+-- contractor rather than needing you to wait 24 hours for one to appear.
 -- ---------------------------------------------------------------------------
 insert into public.opportunity_assignments (
   opportunity_id, contractor_id, position, outcome, offered_at, responded_at, expires_at
@@ -346,7 +355,7 @@ from (values
   (1043, 'tree_landscaping', 'c0000000-0000-4000-8000-00000000000c', 0, 'pending',    5, null),
   (1044, 'hvac',             'c0000000-0000-4000-8000-000000000006', 0, 'declined',  48,  30),
   (1044, 'hvac',             'c0000000-0000-4000-8000-000000000007', 1, 'accepted',  24,  18),
-  (1044, 'plumbing',         'c0000000-0000-4000-8000-000000000001', 0, 'pending',    8, null),
+  (1044, 'plumbing',         'c0000000-0000-4000-8000-000000000001', 0, 'pending',   51, null),
   (1045, 'roofing',          'c0000000-0000-4000-8000-000000000008', 0, 'pending',   24, null),
   (1046, 'plumbing',         'c0000000-0000-4000-8000-000000000001', 0, 'accepted', 672, 670),
   (1046, 'painting',         'c0000000-0000-4000-8000-00000000000a', 0, 'accepted', 648, 644),

@@ -312,6 +312,11 @@ export type Database = {
         Args: { p_payload: SubmitRepairRequestPayload };
         Returns: SubmitRepairRequestResult;
       };
+      /** Admin-only manual run of the offer expiry sweep. Returns the count advanced. */
+      run_offer_sweep: {
+        Args: Record<string, never>;
+        Returns: number;
+      };
     };
     Enums: {
       user_role: UserRole;
