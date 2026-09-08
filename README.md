@@ -62,7 +62,125 @@ Demo data lives in memory. Refreshing the browser resets it to the seeded state.
 npm run build      # production build into dist/
 npm run preview    # serve the production build locally
 npm run typecheck  # TypeScript check, no output
+npm run db:test    # apply migrations to a local database and test the RLS rules
+npm run db:types   # regenerate src/types/database.ts from your live schema
 ```
+
+---
+
+## Connecting Supabase (Phase 2)
+
+Without a `.env` file the app runs on demo data and everything works — the
+sidebar shows a **DEMO DATA** badge so you always know which mode you are in.
+To connect a real database:
+
+### 1. Create the project (in your browser)
+
+1. Go to <https://supabase.com> and create a free account.
+2. **New project**. Pick a name, a strong database password (save it somewhere),
+   and the region closest to Louisiana — `us-east-1` is fine.
+3. Wait about two minutes for it to finish provisioning.
+
+### 2. Copy your credentials
+
+In the project, go to **Project Settings → API** and copy:
+
+- **Project URL**
+- the **`anon` `public`** key — *not* the `service_role` key
+
+Then, in a terminal in this folder:
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` and paste the two values in:
+
+```
+VITE_SUPABASE_URL=https://xxxxxxxxxxxx.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbGciOi...
+```
+
+> The `anon` key is meant to be public — it is protected by the Row Level
+> Security policies in `supabase/migrations`. The `service_role` key bypasses
+> those policies entirely and must never go in this file or in any code.
+
+### 3. Create the schema
+
+In the Supabase dashboard, open the **SQL Editor** and run these files **in
+order**, pasting the contents of each and clicking *Run*:
+
+| Order | File | What it does |
+|---|---|---|
+| 1 | `supabase/migrations/0001_schema.sql` | Tables, enums, indexes, triggers |
+| 2 | `supabase/migrations/0002_rls.sql` | Row Level Security policies |
+| 3 | `supabase/migrations/0003_storage.sql` | The private `attachments` bucket |
+| 4 | `supabase/migrations/0004_auth.sql` | Creates a profile on sign-up |
+| 5 | `supabase/migrations/0005_reference_data.sql` | Trades and territories |
+
+Do **not** run `supabase/tests/00_local_harness.sql` — that file only exists to
+fake Supabase's own `auth` and `storage` schemas when testing on a plain
+PostgreSQL server, and your project already has the real ones.
+
+Optionally run `supabase/seed.sql` too. It creates the demo marketplace and
+four working sign-in accounts (password `askcenla-demo`) so the dashboards have
+something to show. Skip it if you want to start empty.
+
+### 4. Restart the dev server
+
+```bash
+npm run dev
+```
+
+The **DEMO DATA** badge disappears once Supabase is connected.
+
+### 5. Create your admin account
+
+Sign up through the app, then in the SQL Editor run:
+
+```sql
+update public.profiles set role = 'admin' where email = 'you@example.com';
+```
+
+Sign-up deliberately cannot grant the admin role — the trigger in
+`0004_auth.sql` ignores any role in the sign-up data except agent, broker and
+contractor, so nobody can make themselves an administrator from the browser.
+
+### Prefer the CLI?
+
+If you have the Supabase CLI installed, `supabase link --project-ref <ref>`
+followed by `supabase db push` applies the same migrations, and
+`supabase db reset` rebuilds a local database and runs `seed.sql` for you.
+
+---
+
+## Verifying the security rules
+
+Inspection reports contain private property and transaction information, so
+the access rules are tested rather than assumed:
+
+```bash
+npm run db:test
+```
+
+This builds a throwaway PostgreSQL database, applies every migration and the
+seed, then signs in as each demo user and asserts exactly what they can and
+cannot read — 42 assertions covering agent, broker, contractor and admin.
+
+It needs a local PostgreSQL server (`psql`, `createdb`) but **not** a Supabase
+project: `supabase/tests/00_local_harness.sql` stubs the pieces of Supabase the
+migrations depend on. Point it at any database with
+`DATABASE_URL=postgres://... npm run db:test`.
+
+Among the things it proves:
+
+- an agent cannot see another agent's property or inspection report
+- a contractor sees a property's address, the agent's contact details and the
+  inspection report **only after accepting** that trade
+- a contractor cannot see who else was offered the same job
+- neither side can read the other's unsent quote drafts
+- a user cannot promote themselves to admin, and a contractor cannot mark their
+  own membership active
 
 ---
 
@@ -100,8 +218,14 @@ src/
 │   └── admin/              Marketplace, contractors, routing monitor, users
 ├── data/                   Trade catalogue, status vocabulary, demo dataset
 ├── lib/                    matching.ts, selectors.ts, format.ts, quotes.ts
-├── types/                  Domain model (mirrors the planned database schema)
+├── services/               supabase.ts — client, config detection, signed URLs
+├── types/                  Domain model + database row types
 └── styles/                 Design tokens + component CSS
+
+supabase/
+├── migrations/             Schema, RLS, storage, auth trigger, reference data
+├── seed.sql                Demo marketplace + four sign-in accounts
+└── tests/                  Local harness + the 42-assertion RLS test suite
 ```
 
 Full reasoning behind these choices is in
@@ -112,13 +236,18 @@ Full reasoning behind these choices is in
 
 ## Current status
 
-**Phase 1 is complete.** The application runs end to end on demo data:
-authentication structure, role-based routing, all four dashboards, the
-multi-trade request wizard with opportunity generation, contractor
-accept/decline, the quote builder, and the admin routing monitor.
+**Phases 1 and 2 are complete.**
 
-**No backend is connected yet.** Phase 2 replaces the in-memory store with
-Supabase — see the roadmap.
+- **Phase 1** — the full product surface running on demo data: role-based
+  routing, four dashboards, the multi-trade request wizard, contractor
+  accept/decline, the quote builder, and the admin routing monitor.
+- **Phase 2** — the database: schema, Row Level Security, the private storage
+  bucket, the sign-up trigger, and real Supabase authentication. All 42 RLS
+  assertions pass.
+
+**Reads and writes still run on the in-memory store.** Authentication is live
+when Supabase is connected, but moving the dashboards onto real queries is
+Phase 3 — see [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 Never commit credentials. `.env` is git-ignored; `.env.example` documents the
 variables without values.

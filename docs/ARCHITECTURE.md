@@ -93,85 +93,148 @@ colour tone, and a description. Consequences:
 
 ## 5. Security model
 
-The current route guards (`RequireAuth`) are **convenience, not security** —
-they stop honest users landing on the wrong screen. Real enforcement lands in
-Phase 2 as Row Level Security, so that a modified frontend still cannot read
-another party's data.
+Inspection reports carry private property and transaction detail, so access is
+enforced in the database, not in the browser. The route guards in
+`RequireAuth` only stop honest users landing on the wrong screen; a modified
+frontend still gets zero rows.
 
-The UI is already written so the RLS policies are a direct translation:
+Everything below lives in `supabase/migrations/0002_rls.sql` and is verified by
+`npm run db:test`.
 
-| UI behaviour today | Phase 2 RLS policy |
-|---|---|
-| `requestsForAgent()` filters to `created_by = me` | `repair_requests` SELECT: `created_by = auth.uid()` |
-| `requestsForBrokerage()` | SELECT where the request's brokerage matches the viewer's brokerage membership |
-| `opportunitiesForContractor()` returns only offered-or-accepted rows | `opportunities` SELECT: an `opportunity_assignments` row exists for my contractor id, or `contractor_id = my contractor id` |
-| Opportunity cards mask address and agent contact until acceptance | The pre-acceptance view is a restricted **view** exposing only trade, city, ZIP and scope |
-| Attachments render from `storage_path`, never a URL | Private Storage bucket + `createSignedUrl(path, 60)` issued only to authorised users |
+### The design rule
 
-Inspection reports are treated as sensitive throughout: they are never given a
-public permanent URL, in the prototype or the plan.
-
-## 6. Planned database schema
-
-UUID primary keys, `created_at`/`updated_at` on every table, foreign keys
-throughout. `src/types/domain.ts` is already written to these shapes.
+**No policy queries another RLS-protected table directly.** Every cross-table
+question goes through a `SECURITY DEFINER` function in the `app` schema:
 
 ```
-profiles            id (= auth.users.id), role, full_name, email, phone,
-                    brokerage_id →brokerages, contractor_id →contractors
-brokerages          id, name, city, state, phone
-brokerage_members   brokerage_id, profile_id, role_in_brokerage
-                      (join table so an agent can move brokerages without
-                       rewriting history)
-
-trades              key (PK), label, code, description
-territories         id, name, parish, state
-territory_zips      territory_id, zip          (a ZIP maps to one territory)
-contractors         id, business_name, contact_name, email, phone, address,
-                    license_*, insurance_*, availability, membership_status,
-                    is_active, accepting_opportunities, rotation_priority
-contractor_trades   contractor_id, trade_key
-contractor_territories contractor_id, territory_id
-
-repair_requests     id, reference (serial), created_by →profiles,
-                    brokerage_id, address, city, state, zip, mls_number,
-                    transaction_type, status, contact_*, submitted_at
-repair_items        id, request_id →repair_requests, trade_key, description,
-                    urgency, estimate_deadline, notes
-attachments         id, request_id, quote_id, kind, file_name, storage_path,
-                    mime_type, size_bytes, uploaded_by
-
-opportunities       id, code, request_id, repair_item_id, trade_key,
-                    territory_id, status, contractor_id, routing_position,
-                    offered_at, offer_expires_at, accepted_at
-opportunity_assignments
-                    id, opportunity_id, contractor_id, position, outcome,
-                    offered_at, responded_at, expires_at
-
-quotes              id, quote_number, opportunity_id, contractor_id, status,
-                    notes, exclusions, tax_rate, expires_on, submitted_at,
-                    decided_at
-quote_items         id, quote_id, position, description, quantity, unit_price
-
-notifications       id, recipient_id, kind, title, body, link, read_at
-status_history      id, entity_type, entity_id, from_status, to_status,
-                    actor_id, note
-subscriptions       id, contractor_id, stripe_customer_id,
-                    stripe_subscription_id, status, current_period_end
-support_tickets     id, opened_by, subject, body, status
+app.my_role()              app.can_view_request(uuid)
+app.is_admin()             app.can_view_opportunity(uuid)
+app.my_contractor_id()     app.can_view_quote(uuid)
+app.my_brokerage_id()
 ```
 
-Two deliberate improvements over the original sketch:
+Two reasons this matters:
 
-1. **No separate `agents` table.** An agent is a `profile` with `role = 'agent'`.
-   A separate table would duplicate identity and make brokerage moves awkward.
-   `brokerage_members` handles the many-to-many relationship instead.
-2. **`opportunity_assignments` is the routing audit trail**, not just a current
-   assignment pointer. Keeping every offer is what makes automatic reassignment,
-   response-time metrics, and the "why is this stuck" screen possible.
+1. **It prevents infinite recursion.** A policy on `repair_requests` that reads
+   `opportunities`, while the policy on `opportunities` reads
+   `repair_requests`, recurses forever. Definer functions bypass RLS, breaking
+   the cycle.
+2. **It keeps each policy short enough to audit.** The rule for a table is one
+   readable boolean expression rather than a nest of subqueries.
 
-`status_history` exists so status changes are auditable — valuable when a
-transaction is disputed weeks later.
+Every function is declared `STABLE` (evaluated once per statement, not once per
+row) and pinned with `set search_path`, so a hostile schema on the search path
+cannot hijack them.
+
+### Who sees what
+
+| Role | Requests | Opportunities | Quotes | Contractors |
+|---|---|---|---|---|
+| Agent | own only | on own requests | submitted, never drafts | only those assigned to their work |
+| Broker | whole brokerage | whole brokerage | submitted, never drafts | only those assigned to brokerage work |
+| Contractor | **only after accepting** | offered to them or owned | own + none of a rival's | themselves only |
+| Admin | all | all | all incl. drafts | all |
+
+### The pre-acceptance boundary
+
+This is the rule the product depends on most, so it is enforced structurally
+rather than by a filter that could be forgotten.
+
+`app.can_view_request()` grants a contractor access only when they have an
+**accepted** opportunity on that request. Before acceptance the request row —
+which holds `address_line1`, `mls_number` and every `contact_*` column — is
+simply not selectable by them.
+
+What they see instead is the `public.offered_opportunities` view, which is
+built from a column list that *omits* the private fields entirely. There is no
+address to leak because the view has no address column. A test asserts that:
+
+```
+'pre-acceptance feed has no street address column'  →  PASS
+```
+
+Two leaks were found and fixed by writing those tests. In both cases a
+contractor who accepted **one** trade at a property inherited
+`can_view_request` on the parent, which then let them enumerate every *other*
+trade's opportunity there — and read the full routing ladder, learning exactly
+which competitors had been offered the same job. Both policies now gate that
+arm on `app.my_contractor_id() is null`, so it applies to the agent/broker side
+only.
+
+### Column-level guards
+
+RLS decides which *rows* you may touch; it cannot express which *columns* you
+may change on a row you legitimately own. Two triggers cover that gap:
+
+- `app.guard_profile_columns()` — a user cannot change their own `role`
+  (self-promotion to admin), `contractor_id` or `brokerage_id`.
+- `app.guard_contractor_columns()` — a contractor cannot change their own
+  `membership_status`, `is_active` or routing statistics. Without this, a
+  contractor could set themselves to `active` and receive opportunities without
+  paying, because the matching engine trusts that column.
+
+Both return early when `auth.uid()` is null, which is the case for server-side
+callers (migrations, the SQL editor, Edge Functions, the Stripe webhook). A
+browser session always carries a JWT — without one it is `anon`, which has no
+table grants at all.
+
+### Sign-up cannot grant admin
+
+`app.handle_new_user()` creates the profile when Supabase Auth creates the user.
+Sign-up metadata is attacker-controlled — it is whatever the browser put in the
+`signUp()` call — so the trigger whitelists `agent`, `broker` and `contractor`
+and silently ignores anything else. An administrator is promoted by another
+administrator.
+
+A contractor sign-up also creates a `contractors` row as `pending_approval` and
+`is_active = false`, so a new applicant cannot receive work until an admin
+reviews their licence and insurance.
+
+### Files
+
+There is one bucket, `attachments`, and it is **private**. No object is
+reachable by URL alone; the client requests a short-lived signed URL
+(`signedAttachmentUrl()` in `src/services/supabase.ts`) and Supabase issues one
+only if the storage policies pass.
+
+Those policies delegate to the same `app.can_view_request()` /
+`app.can_view_quote()` helpers as the table policies, so **file access and row
+access can never drift apart**. A contractor who cannot read the request row
+cannot read its inspection report, and both flip to allowed at the same moment.
+
+## 6. Database schema
+
+The schema is `supabase/migrations/0001_schema.sql`. UUID primary keys,
+`created_at`/`updated_at` maintained by trigger, foreign keys throughout.
+
+```
+Reference   trades · territories · territory_zips
+Identity    profiles · brokerages · brokerage_members
+Network     contractors · contractor_trades · contractor_territories
+Work        repair_requests · repair_items
+            opportunities · opportunity_assignments
+            quotes · quote_items · attachments
+Support     notifications · status_history · subscriptions · support_tickets
+```
+
+Decisions worth knowing:
+
+- **No `agents` table.** An agent is a `profile` with `role = 'agent'`. A
+  separate table would duplicate identity and make changing brokerage awkward;
+  `brokerage_members` carries the relationship instead.
+- **`opportunity_assignments` is the routing audit trail**, not a current-
+  assignee pointer. Every offer ever made is a row. That is what makes
+  automatic reassignment, response-time metrics and the admin "why is this
+  stuck" screen possible at all.
+- **Opportunity codes are generated in the database.** A trigger builds
+  `1042-P` from the request's reference number and the trade's letter, so the
+  code is correct no matter what inserts the row — the web app today, an Edge
+  Function tomorrow.
+- **`repair_items` is unique on `(request_id, trade_key)`.** Picking plumbing
+  twice for one property is a UI mistake, and the database says so.
+- **Contractor statistics are denormalized** onto `contractors`. They are read
+  on every routing decision and every dashboard; recomputing them from
+  `opportunity_assignments` each time would be wasteful.
 
 ## 7. Automation philosophy in the code
 

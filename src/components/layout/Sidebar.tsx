@@ -15,7 +15,7 @@ export function Sidebar({
   onClose: () => void;
   counts: NavCounts;
 }) {
-  const { profile, signOut } = useAuth();
+  const { profile, signOut, isLive } = useAuth();
   if (!profile) return null;
 
   const sections = NAV_BY_ROLE[profile.role];
@@ -57,13 +57,24 @@ export function Sidebar({
         </div>
 
         <div className="sidebar__footer">
+          {!isLive && (
+            <div className="demo-flag" title="No database connected — this is demo data">
+              <Icon name="alert" size={13} />
+              Demo data
+            </div>
+          )}
           <div className="sidebar__user">
             <Avatar name={profile.full_name} size="sm" />
             <div style={{ minWidth: 0, flex: 1 }}>
               <div className="sidebar__user-name">{profile.full_name}</div>
               <div className="sidebar__user-role">{ROLE_LABEL[profile.role]}</div>
             </div>
-            <button className="icon-btn" onClick={signOut} aria-label="Sign out" style={{ color: 'rgba(255,255,255,0.7)' }}>
+            <button
+              className="icon-btn"
+              onClick={() => void signOut()}
+              aria-label="Sign out"
+              style={{ color: 'rgba(255,255,255,0.7)' }}
+            >
               <Icon name="logout" size={17} />
             </button>
           </div>

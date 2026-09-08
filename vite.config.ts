@@ -10,4 +10,17 @@ export default defineConfig({
     alias: { '@': path.resolve(__dirname, './src') },
   },
   server: { port: 5173, host: true },
+  build: {
+    rollupOptions: {
+      output: {
+        // Split vendor code out of the app bundle. React and supabase-js change
+        // far less often than our own code, so keeping them in separate chunks
+        // means a normal deploy only invalidates the small app chunk.
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router-dom'],
+          supabase: ['@supabase/supabase-js'],
+        },
+      },
+    },
+  },
 });

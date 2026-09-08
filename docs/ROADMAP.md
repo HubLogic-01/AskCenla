@@ -16,34 +16,58 @@ flow runs in a browser with no console errors.
 
 ---
 
-### Phase 2 — Supabase schema, auth, and Row Level Security
+### ✅ Phase 2 — Supabase schema, auth, and Row Level Security *(complete)*
 
-**Outside the codebase (you do this):**
-1. Create a project at <https://supabase.com>.
-2. Copy the Project URL and the **anon** key from Settings → API.
-3. `cp .env.example .env` and paste them in. Never paste the `service_role` key.
+**Delivered:**
 
-**In the codebase:**
-1. `npm install @supabase/supabase-js`
-2. Add `src/services/supabase.ts` creating the client from the env vars.
-3. Add `supabase/migrations/0001_init.sql` — the schema in `docs/ARCHITECTURE.md`.
-4. Add `supabase/migrations/0002_rls.sql` — policies per the security table in
-   the same document. Enable RLS on **every** table.
-5. Create a **private** Storage bucket `attachments`, with a policy granting
-   access only to the request owner, their brokerage, an accepted contractor,
-   and admins.
-6. Replace the bodies of `AuthProvider` (`supabase.auth.*`) and `DataProvider`
-   (`supabase.from(...)`). Screens do not change.
+- `supabase/migrations/0001_schema.sql` — 20 tables, 11 enums, foreign keys,
+  indexes, `updated_at` triggers, and database-side generation of opportunity
+  codes (`1042-P`).
+- `supabase/migrations/0002_rls.sql` — RLS enabled on every table, with all
+  cross-table checks routed through `SECURITY DEFINER` helpers, plus column
+  guards that stop self-promotion to admin and self-activation of a contractor
+  membership. Includes the `offered_opportunities` view that gives contractors
+  a pre-acceptance feed with no address, MLS number or contact details in it.
+- `supabase/migrations/0003_storage.sql` — one **private** `attachments`
+  bucket whose policies reuse the same visibility helpers as the tables, so
+  file access can never drift from row access.
+- `supabase/migrations/0004_auth.sql` — creates the profile (and, for a
+  contractor, a pending contractor record) when Supabase Auth creates the user.
+  Refuses to grant `admin` from sign-up metadata.
+- `supabase/migrations/0005_reference_data.sql` — trades and territories.
+- `supabase/seed.sql` — demo marketplace plus four working sign-in accounts.
+- `src/services/supabase.ts` — client, config detection, signed-URL helper.
+- `AuthProvider` rewritten for real sign-up/sign-in/sessions, keeping demo mode
+  as a fallback so a fresh clone still runs with no backend.
+- `supabase/tests/` — a local harness that stubs Supabase's `auth` and
+  `storage` schemas, and a 42-assertion RLS suite. `npm run db:test`.
 
-*Done when:* signing in with a real account loads real rows, and a contractor
-querying another contractor's opportunity gets zero rows from the database.
+*Verified:* all migrations apply to a clean PostgreSQL 16 database, the seed
+loads, and **42/42 RLS assertions pass**. Writing those tests found and fixed
+two real leaks — a contractor who accepted one trade at a property could see
+every other trade's opportunity there, and could read the whole routing ladder
+including which competitors had been offered the same job.
+
+**Still to do outside the codebase:** create your Supabase project and run the
+migrations. Step-by-step instructions are in the README.
 
 ---
 
-### Phase 3 — Agent dashboard and wizard on live data
-Wire the wizard's insert path (request → items → opportunities in one
-transaction, ideally a Postgres function so a partial failure cannot leave
-orphaned rows), and real file upload to the private bucket.
+### Phase 3 — Agent dashboard and wizard on live data ← **next**
+
+The database is ready; this phase moves reads and writes onto it.
+
+1. Add a repository layer behind `DataProvider` with two implementations
+   (mock and Supabase) so demo mode keeps working.
+2. Point the agent dashboard, property list and property dashboard at real
+   queries.
+3. Wire the wizard's insert path. Do it as a single `SECURITY DEFINER`
+   Postgres function taking the whole request as JSON, so a partial failure
+   cannot leave a request with no opportunities — a browser that dies between
+   two `insert()` calls otherwise leaves orphaned rows.
+4. Real file upload to the private `attachments` bucket, writing the matching
+   `public.attachments` row, and swap `AttachmentList` over to
+   `signedAttachmentUrl()`.
 
 ### Phase 4 — Opportunity generation server-side
 Move `routeOpportunity` into a Postgres function or Edge Function triggered on

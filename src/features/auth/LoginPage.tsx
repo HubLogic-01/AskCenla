@@ -14,7 +14,7 @@ import { profiles } from '@/data/seed';
 const DEMO_IDS = ['usr-agent-1', 'usr-contractor-1', 'usr-broker-1', 'usr-admin-1'];
 
 export function LoginPage() {
-  const { signIn, signInAs } = useAuth();
+  const { signIn, signInAs, isLive } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState('');
@@ -29,7 +29,7 @@ export function LoginPage() {
     setError(null);
     setBusy(true);
     try {
-      const profile = await signIn(email);
+      const profile = await signIn(email, password);
       navigate(redirectTo ?? HOME_BY_ROLE[profile.role], { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to sign in.');
@@ -98,9 +98,10 @@ export function LoginPage() {
                   type="password"
                   autoComplete="current-password"
                   placeholder="••••••••"
+                  required={isLive}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  hint="Password is not checked in the Phase 1 demo."
+                  hint={isLive ? undefined : 'Not checked while running on demo data.'}
                 />
                 <Button type="submit" block size="lg" disabled={busy}>
                   {busy ? 'Signing in…' : 'Sign in'}
@@ -109,29 +110,30 @@ export function LoginPage() {
             </CardBody>
           </Card>
 
-          <div className="divider" />
-
-          <div className="eyebrow" style={{ marginBottom: 'var(--sp-3)' }}>
-            Or explore a demo account
-          </div>
-          <div className="stack stack-2">
-            {DEMO_IDS.map((id) => {
-              const p = profiles.find((x) => x.id === id);
-              if (!p) return null;
-              return (
-                <button key={id} className="demo-account" onClick={() => useDemoAccount(id)}>
-                  <Avatar name={p.full_name} size="sm" tone={p.role === 'admin' ? 'navy' : undefined} />
-                  <span style={{ flex: 1, minWidth: 0 }}>
-                    <span className="demo-account__name">
-                      {p.full_name}
-                    </span>
-                    <span className="demo-account__meta">{ROLE_LABEL[p.role]}</span>
-                  </span>
-                  <Icon name="chevronRight" size={16} />
-                </button>
-              );
-            })}
-          </div>
+          {!isLive && (
+            <>
+              <div className="divider" />
+              <div className="eyebrow" style={{ marginBottom: 'var(--sp-3)' }}>
+                Or explore a demo account
+              </div>
+              <div className="stack stack-2">
+                {DEMO_IDS.map((id) => {
+                  const p = profiles.find((x) => x.id === id);
+                  if (!p) return null;
+                  return (
+                    <button key={id} className="demo-account" onClick={() => useDemoAccount(id)}>
+                      <Avatar name={p.full_name} size="sm" tone={p.role === 'admin' ? 'navy' : undefined} />
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span className="demo-account__name">{p.full_name}</span>
+                        <span className="demo-account__meta">{ROLE_LABEL[p.role]}</span>
+                      </span>
+                      <Icon name="chevronRight" size={16} />
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
 
           <p className="text-sm text-muted" style={{ marginTop: 'var(--sp-6)' }}>
             Need an account? <Link to="/signup">Create one free</Link>
