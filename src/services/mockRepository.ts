@@ -422,6 +422,34 @@ class MockRepository implements Repository {
     return quote;
   }
 
+  async uploadQuoteAttachment(quoteId: string, file: File): Promise<void> {
+    const quote = this.store.quotes.find((q) => q.id === quoteId);
+    if (!quote) throw new Error('That quote no longer exists');
+
+    // No real storage behind demo data, so this records the file the same way
+    // the real upload does and the list renders identically. Opening it will
+    // honestly say the contents are unavailable.
+    this.store.attachments = [
+      ...this.store.attachments,
+      {
+        id: uuid(),
+        request_id: null,
+        quote_id: quoteId,
+        kind: 'quote_attachment',
+        file_name: file.name,
+        storage_path: `quotes/${quoteId}/${file.name}`,
+        mime_type: file.type || 'application/octet-stream',
+        size_bytes: file.size,
+        uploaded_by: quote.contractor_id,
+        created_at: new Date().toISOString(),
+      },
+    ];
+  }
+
+  async removeAttachment(attachment: Attachment): Promise<void> {
+    this.store.attachments = this.store.attachments.filter((a) => a.id !== attachment.id);
+  }
+
   async saveQuote(quote: Quote): Promise<void> {
     this.store.quotes = this.store.quotes.map((q) =>
       q.id === quote.id ? { ...quote, updated_at: new Date().toISOString() } : q,

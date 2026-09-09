@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { Card, CardBody } from '@/components/ui/Card';
+import { Card, CardBody, CardHeader } from '@/components/ui/Card';
 import { Button, ButtonLink } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Alert } from '@/components/ui/Alert';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QuoteDocument } from '@/components/shared/QuoteDocument';
+import { QuoteAttachments } from '@/components/shared/QuoteAttachments';
 import { useData } from '@/app/providers/DataProvider';
 import { useAction } from '@/lib/useAction';
 import { contractorById } from '@/lib/selectors';
@@ -36,6 +37,7 @@ export function AgentQuoteView() {
   const request = data.requests.find((r) => r.id === opportunity?.request_id);
   const contractor = contractorById(data, quote.contractor_id);
   const decidable = quote.status === 'submitted' && !isExpired(quote);
+  const quoteFiles = data.attachments.filter((a) => a.quote_id === quote.id);
 
   return (
     <>
@@ -46,16 +48,26 @@ export function AgentQuoteView() {
         title={`Quote from ${contractor?.business_name ?? 'contractor'}`}
         description={`Total ${money(quoteTotals(quote).total)} · valid until ${shortDate(quote.expires_on)}`}
         actions={
-          decidable ? (
-            <>
-              <Button variant="secondary" onClick={() => setConfirming('declined')}>
-                Decline
-              </Button>
-              <Button variant="success" icon="check" onClick={() => setConfirming('accepted')}>
-                Accept quote
-              </Button>
-            </>
-          ) : undefined
+          <>
+            <Button variant="secondary" icon="file" onClick={() => window.print()}>
+              Print / Save as PDF
+            </Button>
+            {decidable && (
+              <>
+                <Button variant="secondary" disabled={busy} onClick={() => setConfirming('declined')}>
+                  Decline
+                </Button>
+                <Button
+                  variant="success"
+                  icon="check"
+                  disabled={busy}
+                  onClick={() => setConfirming('accepted')}
+                >
+                  Accept quote
+                </Button>
+              </>
+            )}
+          </>
         }
       />
 
@@ -90,18 +102,38 @@ export function AgentQuoteView() {
         </div>
       )}
 
-      <QuoteDocument quote={quote} contractor={contractor} opportunity={opportunity} request={request} />
+      {/* Only this region reaches the printed page. */}
+      <div className="print-area">
+        <QuoteDocument quote={quote} contractor={contractor} opportunity={opportunity} request={request} />
+      </div>
 
-      <div style={{ height: 'var(--sp-5)' }} />
+      <div className="no-print">
+        {quoteFiles.length > 0 && (
+          <>
+            <div style={{ height: 'var(--sp-5)' }} />
+            <Card>
+              <CardHeader
+                title="Attachments"
+                subtitle={`Supplied by ${contractor?.business_name ?? 'the contractor'}`}
+              />
+              <CardBody>
+                <QuoteAttachments quoteId={quote.id} attachments={quoteFiles} editable={false} />
+              </CardBody>
+            </Card>
+          </>
+        )}
 
-      <Card flat>
-        <CardBody>
-          <p className="text-sm text-muted" style={{ margin: 0 }}>
-            AskCENLA connects you with the contractor and tracks the status of the work. The repair
-            contract and payment are between you (or your client) and {contractor?.business_name ?? 'the contractor'}.
-          </p>
-        </CardBody>
-      </Card>
+        <div style={{ height: 'var(--sp-5)' }} />
+
+        <Card flat>
+          <CardBody>
+            <p className="text-sm text-muted" style={{ margin: 0 }}>
+              AskCENLA connects you with the contractor and tracks the status of the work. The repair
+              contract and payment are between you (or your client) and {contractor?.business_name ?? 'the contractor'}.
+            </p>
+          </CardBody>
+        </Card>
+      </div>
 
       <Modal
         open={confirming !== null}

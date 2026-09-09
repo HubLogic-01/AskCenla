@@ -1,0 +1,84 @@
+/* ---------------------------------------------------------------------------
+   Print / Save as PDF.
+
+   A quote is a document a contractor sends and an agent forwards to their
+   client, so it needs to leave the platform as a clean page. The browser's own
+   print-to-PDF does that better than any bundled renderer: real text (not a
+   screenshot), correct pagination, no dependency, and it works offline.
+
+   The rule is simple — hide everything, then reveal the marked region.
+   `visibility` rather than `display` so the layout inside the region survives.
+   --------------------------------------------------------------------------- */
+
+@media print {
+  @page {
+    margin: 16mm;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+
+  .print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+
+  /* Anything interactive is meaningless on paper. */
+  .no-print,
+  .sidebar,
+  .topbar,
+  .btn,
+  .icon-btn {
+    display: none !important;
+  }
+
+  /* Ink-friendly: keep the structure, drop the screen styling. */
+  .quote-doc,
+  .card {
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .quote-doc__head {
+    border-bottom: 2px solid #000 !important;
+  }
+
+  .table th {
+    background: #f2f2f2 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .badge {
+    border: 1px solid #999 !important;
+    color: #000 !important;
+    background: none !important;
+  }
+
+  .quote-doc__print-footer {
+    display: block !important;
+    margin-top: 18mm;
+    padding-top: 4mm;
+    border-top: 1px solid #ccc;
+    font-size: 9pt;
+    color: #666;
+  }
+
+  /* Never split a line item or the totals across a page break. */
+  .table tr,
+  .quote-doc__total-row {
+    break-inside: avoid;
+  }
+}

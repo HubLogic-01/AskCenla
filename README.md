@@ -120,6 +120,7 @@ order**, pasting the contents of each and clicking *Run*:
 | 6 | `supabase/migrations/0006_functions.sql` | Request submission + the routing engine |
 | 7 | `supabase/migrations/0007_routing_automation.sql` | Auto-routing, the expiry sweep, status history |
 | 8 | `supabase/migrations/0008_contractor_actions.sql` | Contractor accept / decline / admin re-route |
+| 9 | `supabase/migrations/0009_quotes.sql` | Quote drafting, submission and acceptance |
 
 Do **not** run `supabase/tests/00_local_harness.sql` — that file only exists to
 fake Supabase's own `auth` and `storage` schemas when testing on a plain
@@ -190,7 +191,7 @@ npm run db:test
 This builds a throwaway PostgreSQL database, applies every migration and the
 seed, then signs in as each demo user and asserts exactly what they can and
 cannot read, what happens when they submit a repair request, and what the
-automation does when nobody is watching — 116 assertions covering agent,
+automation does when nobody is watching — 148 assertions covering agent,
 broker, contractor and admin.
 
 It needs a local PostgreSQL server (`psql`, `createdb`) but **not** a Supabase
@@ -218,6 +219,8 @@ Among the things it proves:
   twice, or re-route work — and an accepted job cannot be pulled out from under
   them by an admin
 - an opportunity is never live with two contractors at once
+- a contractor cannot edit a quote after sending it, and cannot accept their
+  own pricing; an agent cannot decide on a quote for someone else's property
 
 ---
 
@@ -303,9 +306,14 @@ Full reasoning behind these choices is in
   so a decline and the scheduled sweep cannot both advance the same job.
   Response times feed back into the routing score.
 
-**The quote builder is still demo-only** — that is Phase 6, see
-[`docs/ROADMAP.md`](docs/ROADMAP.md). Against a live database its buttons say so
-plainly rather than appearing to work.
+- **Phase 6** — quotes. Drafting, saving, submitting and deciding are each one
+  transactional operation; quotes carry private attachments; and either side
+  can print a clean PDF of the quote straight from the browser.
+
+**What remains is admin depth (Phase 8) and Stripe billing (Phase 10)** — see
+[`docs/ROADMAP.md`](docs/ROADMAP.md). Editing a contractor's trades and
+territories against a live database still says so plainly rather than appearing
+to work.
 
 Never commit credentials. `.env` is git-ignored; `.env.example` documents the
 variables without values.

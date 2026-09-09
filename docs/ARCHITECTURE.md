@@ -83,6 +83,10 @@ it does.
 | `decline_opportunity` | Must advance the rotation, not just record an answer |
 | `reroute_opportunity` | Withdraws a live offer, then routes; admin only |
 | `run_offer_sweep` | Operates across every contractor's offers |
+| `create_draft_quote` | Quote + starter line item + opportunity status, and generates the quote number |
+| `save_quote` | REPLACES line items — a half-done save would empty the pricing |
+| `submit_quote` | Quote + opportunity + the agent's notification are one event |
+| `decide_quote` | The same in reverse, and refuses a contractor approving their own quote |
 
 Each is `SECURITY DEFINER`, so it runs with rights the caller does not have.
 That makes its own authorisation check the entire security boundary, which is
@@ -91,10 +95,34 @@ the abuse cases than the happy path.
 
 ### What is not connected yet
 
-`supabaseRepository` throws a typed `NotYetLiveError` for the quote builder
-(Phase 6) and for editing a contractor's trades and territories (Phase 8),
-naming the phase in the message, and the UI surfaces it instead of appearing to
-work.
+`supabaseRepository` throws a typed `NotYetLiveError` for editing a
+contractor's trades and territories (Phase 8), naming the phase in the message,
+and the UI surfaces it instead of appearing to work.
+
+## 2b. Printing a quote
+
+A quote is a document that leaves the platform — agents forward them to buyers,
+sellers and lenders. It is produced with a print stylesheet
+(`src/styles/print.css`) and the browser's own print-to-PDF rather than a
+bundled renderer.
+
+The reasoning: browser print gives real selectable text instead of a
+screenshot, correct pagination and page margins, no dependency to keep patched
+and no bundle weight, and it works offline. `html2canvas`/`jsPDF` would have
+produced a rasterised image of a web page.
+
+The mechanism is one rule: hide everything, then reveal the marked region.
+
+```css
+body * { visibility: hidden; }
+.print-area, .print-area * { visibility: visible; }
+```
+
+`visibility` rather than `display` so the layout inside the region survives.
+Both the contractor's preview and the agent's view wrap the same
+`QuoteDocument` in `.print-area`, so there is one template and both sides print
+the identical page. A `.quote-doc__print-footer` is hidden on screen and
+revealed on paper, identifying the document once it is out of the platform.
 
 ## 3. The matching engine
 

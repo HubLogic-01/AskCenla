@@ -481,40 +481,104 @@ class SupabaseRepository implements Repository {
 
   // -------------------------------------------------------------------------
   // Quotes
+  //
+  // Each of these spans more than one table — the quote, its line items, the
+  // opportunity's status, and a notification to the other side — so each is an
+  // RPC rather than a sequence of client writes. Saving in particular REPLACES
+  // the line items, and a browser dying between the delete and the insert
+  // would empty a contractor's pricing.
   // -------------------------------------------------------------------------
-  async createDraftQuote(): Promise<Quote> {
-    throw new NotYetLiveError('Building a quote', 'Phase 6');
+  async createDraftQuote(opportunityId: string): Promise<Quote> {
+    const { data, error } = await this.db.rpc('create_draft_quote', {
+      p_opportunity_id: opportunityId,
+    });
+    if (error) throw new Error(error.message);
+
+    const quote = await this.loadQuote(data.quote_id);
+    if (!quote) throw new Error('The quote was created but could not be loaded.');
+    return quote;
   }
 
-  async saveQuote(): Promise<void> {
-    throw new NotYetLiveError('Saving a quote', 'Phase 6');
+  private async loadQuote(quoteId: string): Promise<Quote | null> {
+    const [{ data: row, error }, { data: items }] = await Promise.all([
+      this.db.from('quotes').select('*').eq('id', quoteId).maybeSingle(),
+      this.db.from('quote_items').select('*').eq('quote_id', quoteId),
+    ]);
+    if (error) throw new Error(error.message);
+    return row ? toQuote(row, (items ?? []) as QuoteItemRow[]) : null;
   }
 
-  async submitQuote(): Promise<void> {
-    throw new NotYetLiveError('Submitting a quote', 'Phase 6');
+  async saveQuote(quote: Quote): Promise<void> {
+    const { error } = await this.db.rpc('save_quote', {
+      p_quote_id: quote.id,
+      p_quote: {
+        notes: quote.notes ?? '',
+        exclusions: quote.exclusions ?? '',
+        tax_rate: String(quote.tax_rate ?? 0),
+        // The column is a date, so send the day rather than a timestamp.
+        expires_on: quote.expires_on ? quote.expires_on.slice(0, 10) : '',
+      },
+      p_items: quote.items.map((item) => ({
+        description: item.description,
+        quantity: String(item.quantity),
+        unit_price: String(item.unit_price),
+      })),
+    });
+    if (error) throw new Error(error.message);
+  }
+
+  async submitQuote(quoteId: string): Promise<void> {
+    const { error } = await this.db.rpc('submit_quote', { p_quote_id: quoteId });
+    if (error) throw new Error(error.message);
   }
 
   async decideQuote(quoteId: string, decision: 'accepted' | 'declined'): Promise<void> {
-    // The agent's accept/decline is a plain update the RLS policy already
-    // permits on a submitted quote, so this one needs no RPC.
-    const { error } = await this.db
-      .from('quotes')
-      .update({ status: decision, decided_at: new Date().toISOString() })
-      .eq('id', quoteId);
+    const { error } = await this.db.rpc('decide_quote', {
+      p_quote_id: quoteId,
+      p_decision: decision,
+    });
     if (error) throw new Error(error.message);
+  }
 
-    const { data: quote } = await this.db
-      .from('quotes')
-      .select('opportunity_id')
-      .eq('id', quoteId)
-      .single();
+  async uploadQuoteAttachment(quoteId: string, file: File): Promise<void> {
+    // Same private bucket as inspection reports. The storage policy checks the
+    // quote belongs to this contractor, so an attempt to write under someone
+    // else's quote id is refused by Supabase rather than by this code.
+    const path = `quotes/${quoteId}/${file.name}`;
 
-    if (quote) {
-      await this.setOpportunityStatus(
-        quote.opportunity_id,
-        decision === 'accepted' ? 'quote_accepted' : 'quote_declined',
-      );
+    const { error: uploadError } = await this.db.storage
+      .from('attachments')
+      .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false });
+    if (uploadError) throw new Error(uploadError.message);
+
+    const { data: session } = await this.db.auth.getUser();
+    const { error: rowError } = await this.db.from('attachments').insert({
+      quote_id: quoteId,
+      kind: 'quote_attachment',
+      file_name: file.name,
+      storage_path: path,
+      mime_type: file.type || 'application/octet-stream',
+      size_bytes: file.size,
+      uploaded_by: session.user?.id,
+    });
+    if (rowError) {
+      // Don't leave an orphan in storage that nothing references.
+      await this.db.storage.from('attachments').remove([path]);
+      throw new Error(rowError.message);
     }
+  }
+
+  async removeAttachment(attachment: Attachment): Promise<void> {
+    const { error: rowError } = await this.db
+      .from('attachments')
+      .delete()
+      .eq('id', attachment.id);
+    if (rowError) throw new Error(rowError.message);
+
+    const { error: fileError } = await this.db.storage
+      .from('attachments')
+      .remove([attachment.storage_path]);
+    if (fileError) console.error('Attachment row removed but file remains:', fileError.message);
   }
 
   // -------------------------------------------------------------------------

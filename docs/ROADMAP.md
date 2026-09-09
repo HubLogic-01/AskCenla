@@ -168,17 +168,56 @@ from hidden to visible in the same session.
 
 ---
 
-### Phase 6 — Quotes ← **next**
-Persist quotes and line items; attachments on quotes; a printable PDF built from
-the existing `QuoteDocument` component (it is already a single shared template).
-The RLS policies for all of this already exist and are tested — this is
-repository wiring, not new security work.
+### ✅ Phase 6 — Quotes *(complete)*
 
-### Phase 7 — Agent quote review
-Accept/decline persisted, with `status_history` entries and contractor
-notification.
+The security rules for quotes already existed and were tested in Phase 2 — an
+agent never sees a contractor's draft. So this phase was not new security work;
+it exists because every quote operation spans more than one table and must not
+be half-done.
 
-### Phase 8 — Admin
+**Delivered** (`supabase/migrations/0009_quotes.sql`):
+
+- `create_draft_quote()` — the quote, a starter line item and the opportunity's
+  status move together. The quote number (`Q-1047P-01`) is generated in the
+  database from the request reference and the trade letter, so it is unique and
+  sequential no matter what created it.
+- `save_quote()` — line items are **replaced** wholesale, because the builder
+  lets a contractor reorder, edit and delete rows and diffing that client-side
+  would be more code and more ways to be wrong. Delete-then-insert is only safe
+  because it is one transaction; as two client calls, a browser dying between
+  them would empty a contractor's pricing.
+- `submit_quote()` — the quote, the opportunity and the agent's notification
+  are one event. Refuses a quote with no line items, and refuses to touch one
+  already sent: the agent is looking at those figures.
+- `decide_quote()` — the same, in the other direction, and it refuses the
+  obvious abuse of a contractor approving their own pricing.
+- **Quote attachments** in the same private bucket as inspection reports, so a
+  spec sheet or warranty is readable only by people who can already read the
+  quote. A failed database insert removes the uploaded file rather than leaving
+  an orphan.
+- **Print / Save as PDF** on both sides, from the `QuoteDocument` component
+  that already rendered identically for contractor and agent.
+
+*Verified:* 148/148 database assertions, and the full lifecycle in a browser —
+accept an offer, build a two-line quote, attach a file, save, submit, then view
+and print it as the agent.
+
+**On the PDF:** this uses a print stylesheet and the browser's own
+print-to-PDF, not a bundled renderer. That gives real selectable text rather
+than a screenshot, correct pagination, no dependency to keep patched, and it
+works offline. A print-only footer identifies the document once it has left the
+platform, since quotes get forwarded to buyers, sellers and lenders.
+
+---
+
+### ✅ Phase 7 — Agent quote review *(delivered with Phase 6)*
+
+Accept/decline is persisted through `decide_quote()`, writes `status_history`
+via the Phase 4 trigger, and notifies the contractor. The remaining idea from
+this phase — surfacing `status_history` as an activity timeline on the property
+dashboard — is folded into Phase 8.
+
+### Phase 8 — Admin ← **next**
 Contractor approval workflow, membership overrides, and marketplace metrics
 computed as Postgres views rather than in the browser.
 

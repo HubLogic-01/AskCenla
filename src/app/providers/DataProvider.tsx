@@ -59,6 +59,8 @@ interface DataContextValue extends Workspace {
   setOpportunityStatus: (opportunityId: string, status: OpportunityStatus) => Promise<void>;
   rerouteOpportunity: (opportunityId: string) => Promise<void>;
   createDraftQuote: (opportunityId: string, contractorId: string) => Promise<Quote>;
+  uploadQuoteAttachment: (quoteId: string, file: File) => Promise<void>;
+  removeAttachment: (attachment: Attachment) => Promise<void>;
   saveQuote: (quote: Quote) => Promise<void>;
   submitQuote: (quoteId: string) => Promise<void>;
   decideQuote: (quoteId: string, decision: 'accepted' | 'declined') => Promise<void>;
@@ -156,6 +158,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
         mutate(() => repository.rerouteOpportunity(opportunityId)),
       createDraftQuote: (opportunityId, contractorId) =>
         mutate(() => repository.createDraftQuote(opportunityId, contractorId)),
+      uploadQuoteAttachment: (quoteId, file) =>
+        mutate(() => repository.uploadQuoteAttachment(quoteId, file)),
+      removeAttachment: (attachment) => mutate(() => repository.removeAttachment(attachment)),
       saveQuote: (quote) => mutate(() => repository.saveQuote(quote)),
       submitQuote: (quoteId) => mutate(() => repository.submitQuote(quoteId)),
       decideQuote: (quoteId, decision) => mutate(() => repository.decideQuote(quoteId, decision)),

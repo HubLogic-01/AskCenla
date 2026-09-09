@@ -288,3 +288,9 @@
   font-size: var(--text-xs);
   font-weight: 700;
 }
+
+/* Identifies a printed quote once it has left the screen. Hidden on screen —
+   the print stylesheet reveals it. */
+.quote-doc__print-footer {
+  display: none;
+}

@@ -331,6 +331,27 @@ export type Database = {
         Args: { p_opportunity_id: string };
         Returns: { opportunity_id: string; next_contractor: string | null };
       };
+      /** supabase/migrations/0009_quotes.sql */
+      create_draft_quote: {
+        Args: { p_opportunity_id: string };
+        Returns: { quote_id: string; quote_number: string };
+      };
+      save_quote: {
+        Args: {
+          p_quote_id: string;
+          p_quote: { notes: string; exclusions: string; tax_rate: string; expires_on: string };
+          p_items: { description: string; quantity: string; unit_price: string }[];
+        };
+        Returns: undefined;
+      };
+      submit_quote: {
+        Args: { p_quote_id: string };
+        Returns: { quote_id: string; status: QuoteStatus };
+      };
+      decide_quote: {
+        Args: { p_quote_id: string; p_decision: 'accepted' | 'declined' };
+        Returns: { quote_id: string; status: QuoteStatus };
+      };
     };
     Enums: {
       user_role: UserRole;

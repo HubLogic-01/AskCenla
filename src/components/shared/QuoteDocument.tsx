@@ -141,6 +141,17 @@ export function QuoteDocument({
             <p style={{ marginTop: 'var(--sp-2)' }}>{quote.exclusions}</p>
           </div>
         )}
+
+        {/*
+          Print only. A quote gets forwarded to buyers, sellers and lenders, so
+          the paper copy should say what it is and where it came from without
+          cluttering the on-screen view.
+        */}
+        <div className="quote-doc__print-footer">
+          {quote.quote_number}
+          {request ? ` · ${request.address_line1}, ${request.city}, ${request.state}` : ''} ·
+          Prepared through AskCENLA Repair Network
+        </div>
       </div>
     </div>
   );

@@ -9,6 +9,7 @@ import { Alert } from '@/components/ui/Alert';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Modal } from '@/components/ui/Modal';
 import { QuoteDocument } from '@/components/shared/QuoteDocument';
+import { QuoteAttachments } from '@/components/shared/QuoteAttachments';
 import { useAuth } from '@/app/providers/AuthProvider';
 import { useAction } from '@/lib/useAction';
 import { useData } from '@/app/providers/DataProvider';
@@ -68,6 +69,7 @@ export function QuoteBuilder() {
   }
 
   const totals = quoteTotals(draft);
+  const quoteFiles = data.attachments.filter((a) => a.quote_id === draft.id);
 
   function patch(next: Partial<Quote>) {
     setDraft((d) => (d ? { ...d, ...next } : d));
@@ -114,9 +116,28 @@ export function QuoteBuilder() {
           backLabel="My quotes"
           eyebrow={opportunity?.code}
           title={draft.quote_number}
-          description="Submitted quotes are locked. Withdraw and rebuild if the scope changes."
+          description="A submitted quote is locked — the agent is looking at these figures. Build a new one if the scope changes."
+          actions={
+            <Button variant="secondary" icon="file" onClick={() => window.print()}>
+              Print / Save as PDF
+            </Button>
+          }
         />
-        <QuoteDocument quote={draft} contractor={contractor} opportunity={opportunity} request={request} />
+        {/* Everything inside .print-area is what lands on the page. */}
+        <div className="print-area">
+          <QuoteDocument quote={draft} contractor={contractor} opportunity={opportunity} request={request} />
+        </div>
+
+        {quoteFiles.length > 0 && (
+          <div className="no-print" style={{ marginTop: 'var(--sp-5)' }}>
+            <Card>
+              <CardHeader title="Attachments" />
+              <CardBody>
+                <QuoteAttachments quoteId={draft.id} attachments={quoteFiles} editable={false} />
+              </CardBody>
+            </Card>
+          </div>
+        )}
       </>
     );
   }
@@ -270,14 +291,11 @@ export function QuoteBuilder() {
               value={draft.expires_on ? draft.expires_on.slice(0, 10) : ''}
               onChange={(e) => patch({ expires_on: e.target.value ? new Date(e.target.value).toISOString() : null })}
             />
-            <div className="dropzone" style={{ padding: 'var(--sp-6)' }}>
-              <div className="row" style={{ justifyContent: 'center', gap: 'var(--sp-3)' }}>
-                <Icon name="upload" size={18} />
-                <span className="text-sm text-semibold text-strong">Attach a photo, spec sheet or warranty</span>
-              </div>
-              <div className="text-xs text-muted" style={{ marginTop: 'var(--sp-2)' }}>
-                Attachment upload is wired to Supabase Storage in Phase 6.
-              </div>
+            <div className="field">
+              <span className="field__label">
+                Attachments <span className="field__optional">(optional)</span>
+              </span>
+              <QuoteAttachments quoteId={draft.id} attachments={quoteFiles} editable />
             </div>
           </CardBody>
           <CardFooter>
@@ -295,8 +313,15 @@ export function QuoteBuilder() {
         </Card>
 
         <div>
-          <h3 style={{ marginBottom: 'var(--sp-4)' }}>Preview — what the agent will see</h3>
-          <QuoteDocument quote={draft} contractor={contractor} opportunity={opportunity} request={request} />
+          <div className="row row--between" style={{ marginBottom: 'var(--sp-4)' }}>
+            <h3>Preview — what the agent will see</h3>
+            <Button variant="secondary" size="sm" icon="file" onClick={() => window.print()}>
+              Print / Save as PDF
+            </Button>
+          </div>
+          <div className="print-area">
+            <QuoteDocument quote={draft} contractor={contractor} opportunity={opportunity} request={request} />
+          </div>
         </div>
       </div>
 
