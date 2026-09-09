@@ -125,6 +125,7 @@ order**, pasting the contents of each and clicking *Run*:
 | 11 | `supabase/migrations/0011_email_delivery.sql` | Email queue, preferences, owner digest |
 | 12 | `supabase/migrations/0012_email_schedule.sql` | Schedules the email worker |
 | 13 | `supabase/migrations/0013_billing.sql` | Stripe subscriptions and membership |
+| 14 | `supabase/migrations/0014_write_guards.sql` | Stops direct table writes bypassing the rules above |
 
 Do **not** run `supabase/tests/00_local_harness.sql` — that file only exists to
 fake Supabase's own `auth` and `storage` schemas when testing on a plain
@@ -324,7 +325,7 @@ npm run db:test
 This builds a throwaway PostgreSQL database, applies every migration and the
 seed, then signs in as each demo user and asserts exactly what they can and
 cannot read, what happens when they submit a repair request, and what the
-automation does when nobody is watching — 241 assertions covering agent,
+automation does when nobody is watching — 269 assertions covering agent,
 broker, contractor and admin.
 
 It needs a local PostgreSQL server (`psql`, `createdb`) but **not** a Supabase
@@ -362,6 +363,13 @@ Among the things it proves:
 - a redelivered Stripe webhook is applied once, an out-of-order one is ignored,
   a failed payment pauses routing without cancelling, and paying does not
   activate a contractor who has not been approved
+- **none of the rules above can be sidestepped by writing to a table directly.**
+  Supabase publishes every table over HTTP, so each rule enforced inside a
+  database function is also enforced by a trigger on the table it protects: a
+  contractor cannot add a line item to a quote they have already sent, an agent
+  cannot hand their request to another brokerage or assign a contractor of their
+  choosing to a job, and nobody can edit a notification other than to mark it
+  read
 
 ---
 
@@ -410,7 +418,7 @@ src/
 supabase/
 ├── migrations/             Schema, RLS, storage, auth trigger, reference data
 ├── seed.sql                Demo marketplace + four sign-in accounts
-└── tests/                  Local harness + the 42-assertion RLS test suite
+└── tests/                  Local harness + the database test suite
 ```
 
 Full reasoning behind these choices is in
@@ -421,7 +429,7 @@ Full reasoning behind these choices is in
 
 ## Current status
 
-**Phases 1 and 2 are complete.**
+**All ten phases are complete.**
 
 - **Phase 1** — the full product surface running on demo data: role-based
   routing, four dashboards, the multi-trade request wizard, contractor
@@ -455,9 +463,24 @@ Full reasoning behind these choices is in
   marketplace metrics counted in the database rather than in the browser, and
   an activity timeline showing what the routing engine did on its own.
 
-**Every screen now works against a real database.** What remains is
-notifications by email and Stripe billing — see
-[`docs/ROADMAP.md`](docs/ROADMAP.md).
+- **Phase 9** — notifications. Every routing event queues a message, an Edge
+  Function drains the queue on a schedule, and recipients choose what reaches
+  their inbox.
+
+- **Phase 10** — billing. Stripe Checkout and the customer portal, a webhook
+  that is the only writer of membership state, and routing that skips a
+  contractor whose payment has lapsed.
+
+- **Security review** — an audit that attacked the running database as each
+  demo user rather than re-reading the code. It found that business rules lived
+  only in the database functions the app calls, while the tables underneath
+  stayed broadly writable — and Supabase exposes those tables over HTTP.
+  `0014_write_guards.sql` closes that gap and
+  `supabase/tests/09_write_guard_test.sql` re-runs each attack on every test
+  run.
+
+**The MVP is complete and every screen works against a real database.** What
+comes next is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 Never commit credentials. `.env` is git-ignored; `.env.example` documents the
 variables without values.

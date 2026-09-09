@@ -321,6 +321,54 @@ definers, `current_user` inside them would always be the owner, so
 `is_browser_session()` could never return true and the guards would be silent
 no-ops. They need no elevated rights: they only compare `NEW` to `OLD`.
 
+### The RPC is not the boundary
+
+The most serious finding of the security review was structural, and it came
+from attacking the running database as each demo user rather than re-reading
+the code.
+
+Every business rule had a home in a `SECURITY DEFINER` function: `submit_quote`
+freezes a quote, `decide_quote` refuses to let a contractor accept their own
+pricing, `route_opportunity` decides who is offered a job. The app only ever
+calls those functions, so the rules held for the app. But PostgREST publishes
+**every table** a role can write, and the tables underneath were protected only
+by RLS — which asks *may you touch this row*, and answered yes. A contractor
+holding nothing but the anon key and their own login could `PATCH
+/rest/v1/quote_items` and append a $5,000 line to a quote the agent had already
+accepted. An agent could `POST /rest/v1/opportunities` naming any contractor in
+the state, which is also a grant of access to their inspection report.
+
+Eight such attacks were confirmed working. The lesson generalises: **a rule
+enforced in an RPC is a rule enforced in one code path, not a rule enforced in
+the database.** The boundary is the table.
+
+`0014_write_guards.sql` moves each rule down to the table it protects, using the
+same `app.is_browser_session()` mechanism as the guards above:
+
+- `app.guard_quote_items()` — line items are frozen once the quote leaves
+  `draft`, so a sent quote cannot grow.
+- `app.guard_quote_columns()` — a submitted quote's content is frozen, a
+  contractor may never write `accepted`/`declined`, and a decided quote cannot
+  be re-decided.
+- `app.guard_opportunity_columns()` — a browser may change `status` and nothing
+  else, so the assigned contractor, the trade and the offer ladder stay the
+  routing engine's to write.
+- `app.guard_request_columns()` — `created_by`, `reference` and `brokerage_id`
+  are immutable; moving a request between brokerages is an admin action.
+- `app.guard_repair_item_columns()` — an item cannot change trade or move to
+  another request once opportunities exist for it.
+- `app.guard_notification_columns()` — a recipient may set `read_at`. Nothing
+  else.
+
+The `opportunities` insert policy was dropped outright rather than guarded:
+nobody has any business creating an opportunity by hand, because
+`route_opportunity()` is the only thing that knows how to pick a contractor.
+
+`supabase/tests/09_write_guard_test.sql` is written as the attacks themselves —
+every assertion performs a direct table write that succeeded before this
+migration — alongside positive controls proving the legitimate versions of the
+same writes still work.
+
 ### Sign-up cannot grant admin
 
 `app.handle_new_user()` creates the profile when Supabase Auth creates the user.

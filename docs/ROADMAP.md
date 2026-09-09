@@ -332,11 +332,41 @@ activate a contractor an administrator has not approved.**
 
 ---
 
+### ✅ Security review *(complete)*
+
+An audit of the finished MVP, run as an attack against the live database rather
+than a re-reading of the code: each demo user's credentials, each rule the
+product depends on, and a direct attempt to break it.
+
+**Found:** every business rule lived in a `SECURITY DEFINER` function, and the
+tables underneath were left broadly writable. Supabase publishes those tables
+over HTTP, so eight rules turned out to be enforceable only against a client
+that agreed to use the app. Confirmed working: a contractor adding a $5,000 line
+item to a quote the agent had already accepted; an agent moving their request
+into another brokerage; an agent creating an opportunity assigned to any
+contractor in the state, which also hands that contractor the inspection report.
+
+**Delivered:**
+
+- `0014_write_guards.sql` — six guard triggers moving each rule down to the
+  table it protects, and the removal of the `opportunities` insert policy
+  (nothing but the routing engine should ever create one).
+- `supabase/tests/09_write_guard_test.sql` — the attacks themselves as
+  regression tests, each performing the direct table write that used to work,
+  plus positive controls proving the legitimate versions still do.
+
+*Verified:* 269/269 database assertions, every original attack now refused, and
+the full app still working in a browser. The reasoning is in
+[`ARCHITECTURE.md`](ARCHITECTURE.md) under *The RPC is not the boundary*.
+
+---
+
 ## All ten phases are complete
 
 Every screen works against a real database, and the platform runs unattended:
 opportunities route themselves, lapsed offers advance on a schedule, emails
-go out, and billing state drives who receives work.
+go out, and billing state drives who receives work. The access rules have been
+attacked as well as written.
 
 ### Sensible next steps
 
