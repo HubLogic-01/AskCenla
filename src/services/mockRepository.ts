@@ -3,6 +3,7 @@ import type {
   Attachment,
   Contractor,
   MarketplaceMetrics,
+  Membership,
   Opportunity,
   OpportunityAssignment,
   OpportunityStatus,
@@ -196,7 +197,11 @@ class MockRepository implements Repository {
     };
   }
 
-  async loadWorkspace(_profile: Profile): Promise<Workspace> {
+  /** Remembered from the last load so membership() knows whose it is. */
+  private demoContractorId: string | null = null;
+
+  async loadWorkspace(profile: Profile): Promise<Workspace> {
+    this.demoContractorId = profile.contractor_id;
     // No filtering here on purpose: the selectors in src/lib/selectors.ts do
     // it, exactly as they do for the Supabase path where RLS has already
     // filtered. Same code, same result.
@@ -691,6 +696,27 @@ class MockRepository implements Repository {
   async attachmentUrl(_attachment: Attachment): Promise<string | null> {
     // There is no real storage behind demo data, and inventing a URL would be
     // worse than admitting it: the UI shows the file as unavailable.
+    return null;
+  }
+
+  async membership(): Promise<Membership | null> {
+    // Demo mode has no Stripe, so this reports the contractor's status without
+    // inventing a subscription that does not exist.
+    const contractor = this.store.contractors.find((c) => c.id === this.demoContractorId);
+    if (!contractor) return null;
+    return {
+      membership_status: contractor.membership_status,
+      is_active: contractor.is_active,
+      monthly_fee: 199,
+      has_subscription: false,
+      stripe_status: null,
+      current_period_end: null,
+      cancel_at_period_end: false,
+    };
+  }
+
+  async billingSession(): Promise<string | null> {
+    // Nothing to redirect to. The screen says so rather than pretending.
     return null;
   }
 

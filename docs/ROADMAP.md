@@ -301,13 +301,60 @@ more. Hence the claim timestamp and the reclaim window.
 
 ---
 
-### Phase 10 — Stripe membership ← **next**
-Checkout for the $199/month membership, a webhook that writes
-`subscriptions.status` and `contractors.membership_status`, and a billing portal
-link. The matching engine already refuses to route to a non-active membership,
-so switching billing on requires no logic change.
+### ✅ Phase 10 — Stripe membership *(complete)*
+
+The groundwork had been in place since Phase 2: `contractors.membership_status`
+decides who the matching engine routes to, and it has refused a past-due
+account from the beginning. This phase connected that column to Stripe.
+
+**Delivered:**
+
+- `0013_billing.sql` — `apply_subscription_event()`, the only thing that ever
+  changes a membership status. Plus `billing_events` as an idempotency ledger
+  and `my_membership()` for the contractor's own screen.
+- `app.membership_for_stripe_status()` — the business rule in one readable,
+  value-by-value function: `past_due` and `unpaid` *pause* rather than cancel,
+  because most failed payments recover; `incomplete` changes nothing, because
+  checkout in flight means nothing has been paid.
+- `supabase/functions/stripe-billing` — Checkout and the billing portal, with
+  the contractor derived from the caller's token and never from the request
+  body.
+- `supabase/functions/stripe-webhook` — verifies the Stripe signature, then
+  hands a flat payload to SQL. It contains no decisions.
+- A real Membership screen: subscribe, see the renewal date, manage billing,
+  and a clear warning when a payment has failed.
+
+*Verified:* 241/241 database assertions. The ones that matter are the webhook
+realities — a redelivered event applies once, an event that arrives late but
+happened earlier is ignored rather than reviving a stale status, a failed
+payment stops the work and tells the contractor why, and **paying does not
+activate a contractor an administrator has not approved.**
 
 ---
+
+## All ten phases are complete
+
+Every screen works against a real database, and the platform runs unattended:
+opportunities route themselves, lapsed offers advance on a schedule, emails
+go out, and billing state drives who receives work.
+
+### Sensible next steps
+
+Not a roadmap, just what a real deployment would want first:
+
+1. **Use it.** Nothing in this list matters more than one real property
+   request through the real thing.
+2. **Contractor onboarding polish** — a proper application form with licence
+   and insurance upload, rather than the current sign-up plus admin review.
+3. **Territory coverage view** for the owner: which trade/territory pairs have
+   fewer than three active contractors, so recruiting is a list rather than a
+   hunch.
+4. **A second look at the rotation.** `scoreContractor` weights position,
+   acceptance rate and responsiveness on judgement, not evidence. After a few
+   hundred real offers there will be data to tune it against.
+5. **Agent-side quote comparison** when more than one contractor has quoted the
+   same trade — not currently possible, since routing gives a trade to one
+   contractor at a time.
 
 ## Later, deliberately deferred
 

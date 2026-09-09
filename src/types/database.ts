@@ -398,6 +398,19 @@ export type Database = {
         Args: { p_contractor_id: string; p_status: MembershipStatus; p_is_active: boolean };
         Returns: { contractor_id: string; membership_status: MembershipStatus; is_active: boolean };
       };
+      /** supabase/migrations/0013_billing.sql */
+      my_membership: {
+        Args: Record<string, never>;
+        Returns: {
+          membership_status: MembershipStatus;
+          is_active: boolean;
+          monthly_fee: number;
+          has_subscription: boolean;
+          stripe_status: string | null;
+          current_period_end: string | null;
+          cancel_at_period_end: boolean;
+        };
+      };
     };
     Enums: {
       user_role: UserRole;

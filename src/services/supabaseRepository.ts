@@ -4,6 +4,7 @@ import type {
   Attachment,
   Contractor,
   MarketplaceMetrics,
+  Membership,
   Opportunity,
   OpportunityAssignment,
   OpportunityStatus,
@@ -703,6 +704,31 @@ class SupabaseRepository implements Repository {
       return null;
     }
     return data.signedUrl;
+  }
+
+  async membership(): Promise<Membership | null> {
+    const { data, error } = await this.db.rpc('my_membership');
+    if (error) {
+      // An agent or broker has no membership; that is not an error worth
+      // surfacing, the screen simply is not for them.
+      return null;
+    }
+    return {
+      ...data,
+      monthly_fee: Number(data.monthly_fee),
+    };
+  }
+
+  async billingSession(mode: 'checkout' | 'portal'): Promise<string | null> {
+    // The Edge Function derives the contractor from the caller's token, so
+    // there is nothing to send but the mode.
+    const { data, error } = await this.db.functions.invoke<{ url?: string; error?: string }>(
+      'stripe-billing',
+      { body: { mode } },
+    );
+    if (error) throw new Error(error.message);
+    if (data?.error) throw new Error(data.error);
+    return data?.url ?? null;
   }
 
   async resetDemoData(): Promise<void> {

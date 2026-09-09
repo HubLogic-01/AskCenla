@@ -12,6 +12,7 @@ import type {
   Attachment,
   Contractor,
   MarketplaceMetrics,
+  Membership,
   OpportunityStatus,
   Quote,
 } from '@/types/domain';
@@ -70,6 +71,10 @@ interface DataContextValue extends Workspace {
   runOfferSweep: () => Promise<number>;
   /** Admin marketplace roll-up, or null if the viewer is not entitled to it. */
   marketplaceMetrics: () => Promise<MarketplaceMetrics | null>;
+  /** The signed-in contractor's membership, or null for anyone else. */
+  membership: () => Promise<Membership | null>;
+  /** A Stripe URL to redirect to, or null when billing is not configured. */
+  billingSession: (mode: 'checkout' | 'portal') => Promise<string | null>;
   markNotificationRead: (notificationId: string) => Promise<void>;
   markAllNotificationsRead: (recipientId: string) => Promise<void>;
   attachmentUrl: (attachment: Attachment) => Promise<string | null>;
@@ -171,6 +176,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
         mutate(() => repository.updateContractor(contractorId, patch)),
       runOfferSweep: () => mutate(() => repository.runOfferSweep()),
       marketplaceMetrics: () => repository.marketplaceMetrics(),
+      membership: () => repository.membership(),
+      billingSession: (mode) => repository.billingSession(mode),
       markNotificationRead: (notificationId) =>
         mutate(() => repository.markNotificationRead(notificationId)),
       markAllNotificationsRead: (recipientId) =>

@@ -319,6 +319,17 @@ export interface MarketplaceMetrics {
   monthly_recurring_revenue: number;
 }
 
+/** What the contractor's membership screen reads, from public.my_membership(). */
+export interface Membership {
+  membership_status: MembershipStatus;
+  is_active: boolean;
+  monthly_fee: number;
+  has_subscription: boolean;
+  stripe_status: string | null;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+}
+
 export interface StatusHistoryEntry {
   id: string;
   entity_type: 'repair_request' | 'opportunity' | 'quote';

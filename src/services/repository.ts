@@ -4,6 +4,7 @@ import type {
   Contractor,
   AppNotification,
   MarketplaceMetrics,
+  Membership,
   Opportunity,
   OpportunityAssignment,
   OpportunityStatus,
@@ -153,6 +154,16 @@ export interface Repository {
    * counting it in the browser.
    */
   marketplaceMetrics(): Promise<MarketplaceMetrics | null>;
+
+  /** The signed-in contractor's membership and billing state. */
+  membership(): Promise<Membership | null>;
+
+  /**
+   * Starts Stripe Checkout, or opens the billing portal for an existing
+   * subscription. Returns the URL to send the browser to, or null when billing
+   * is not configured.
+   */
+  billingSession(mode: 'checkout' | 'portal'): Promise<string | null>;
 
   /** Mock only; a no-op against a real database. */
   resetDemoData(): Promise<void>;

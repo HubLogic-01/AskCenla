@@ -89,6 +89,7 @@ it does.
 | `decide_quote` | The same in reverse, and refuses a contractor approving their own quote |
 | `set_contractor_trades` / `..._territories` | Replaces a set across a join table |
 | `set_contractor_membership` | Writes the columns the guard trigger protects |
+| `apply_subscription_event` | Idempotent, order-aware application of a Stripe webhook |
 
 Each is `SECURITY DEFINER`, so it runs with rights the caller does not have.
 That makes its own authorisation check the entire security boundary, which is
@@ -450,6 +451,33 @@ Three details worth keeping:
 - **Preference is applied at insert, not at send.** The queue then reflects
   what the recipient wanted when the event happened, and someone switching to
   "off" does not silently swallow something already queued for them.
+
+### Billing: the same line, drawn again
+
+Stripe follows the email pattern. The Edge Function proves a webhook really
+came from Stripe and flattens its object shapes; every decision is in SQL.
+
+What "decision" means here:
+
+- **Idempotency.** Stripe retries on any non-2xx and can redeliver on success.
+  `billing_events` is keyed on the event id, so a repeat is a conflict rather
+  than a second application. That is also why the webhook can safely return 500
+  and let Stripe retry.
+- **Ordering.** Stripe guarantees delivery, not sequence. `last_event_at` means
+  an event that arrives late but *happened* earlier is discarded instead of
+  reviving a stale status — otherwise a delayed "active" could silently
+  un-suspend an account that had since gone past due.
+- **What a payment state means.** `app.membership_for_stripe_status()` is one
+  small function because it is the single point that decides whether a
+  contractor keeps receiving work. `past_due` pauses rather than cancels, since
+  most failed payments recover; `incomplete` changes nothing, since checkout in
+  flight means nothing has been paid.
+
+One rule is worth stating plainly: **billing never overrules an
+administrator.** Paying does not activate an account that has not been
+reviewed, and there is a test asserting exactly that. Membership status and
+`is_active` are separate columns for this reason — one is a billing fact, the
+other a human decision, and the matching engine requires both.
 
 ## 8. What is intentionally not built
 

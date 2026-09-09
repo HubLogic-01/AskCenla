@@ -124,6 +124,7 @@ order**, pasting the contents of each and clicking *Run*:
 | 10 | `supabase/migrations/0010_admin.sql` | Contractor approval, trades/territories, metrics view |
 | 11 | `supabase/migrations/0011_email_delivery.sql` | Email queue, preferences, owner digest |
 | 12 | `supabase/migrations/0012_email_schedule.sql` | Schedules the email worker |
+| 13 | `supabase/migrations/0013_billing.sql` | Stripe subscriptions and membership |
 
 Do **not** run `supabase/tests/00_local_harness.sql` — that file only exists to
 fake Supabase's own `auth` and `storage` schemas when testing on a plain
@@ -224,7 +225,74 @@ Three schedules run: pending notifications every 5 minutes, daily summaries at
 07:00 UTC, and your own digest of things needing attention at 12:30 UTC. Each
 person chooses immediate, daily or in-app-only from the notifications menu.
 
-### 7. Create your admin account
+### 7. Turn on billing (optional)
+
+Contractors can use the platform without this; they just cannot subscribe.
+Membership status is already what decides who receives work, so connecting
+Stripe is the last wire rather than a rewrite.
+
+**What you need:** a [Stripe](https://stripe.com) account. Do all of this in
+**test mode** first — the toggle is in the Stripe dashboard.
+
+1. **Create the product.** Stripe → Product catalogue → add a product,
+   "AskCENLA Repair Network Membership", recurring, $199/month. Copy the
+   **price ID** (`price_...`).
+
+2. **Run migration `0013`** in the SQL Editor if you have not already.
+
+3. **Deploy both functions:**
+
+   ```bash
+   supabase functions deploy stripe-billing
+   supabase functions deploy stripe-webhook --no-verify-jwt
+   ```
+
+   Only the webhook uses `--no-verify-jwt`, because Stripe does not send a
+   Supabase token — it authenticates by signature instead. The checkout
+   function keeps JWT verification, since the caller's identity is the whole
+   point.
+
+4. **Add the webhook in Stripe.** Developers → Webhooks → add endpoint:
+
+   ```
+   https://YOUR-PROJECT-REF.functions.supabase.co/stripe-webhook
+   ```
+
+   Select these events:
+   `customer.subscription.created`, `customer.subscription.updated`,
+   `customer.subscription.deleted`, `invoice.paid`,
+   `invoice.payment_failed`, `checkout.session.completed`.
+   Copy the **signing secret** (`whsec_...`).
+
+5. **Give the functions their secrets:**
+
+   ```bash
+   supabase secrets set \
+     STRIPE_SECRET_KEY=sk_test_xxx \
+     STRIPE_PRICE_ID=price_xxx \
+     STRIPE_WEBHOOK_SECRET=whsec_xxx \
+     APP_URL=https://your-site.netlify.app
+   ```
+
+6. **Try it.** Sign in as a contractor → Membership → Start membership. Use
+   Stripe's test card `4242 4242 4242 4242`, any future expiry, any CVC.
+
+To check a failed payment does what it should, use `4000 0000 0000 0341` (it
+succeeds then fails on renewal), or trigger it directly:
+
+```bash
+stripe trigger invoice.payment_failed
+```
+
+The contractor should move to **Past Due**, stop receiving opportunities, and
+be told why — while work they already accepted is untouched.
+
+> Only the **publishable** key would ever go in `.env`, and this build does not
+> need one: the browser never talks to Stripe directly, it is redirected to a
+> Checkout session created server-side. The secret key lives only in the Edge
+> Function's environment.
+
+### 8. Create your admin account
 
 Sign up through the app, then in the SQL Editor run:
 
@@ -256,7 +324,7 @@ npm run db:test
 This builds a throwaway PostgreSQL database, applies every migration and the
 seed, then signs in as each demo user and asserts exactly what they can and
 cannot read, what happens when they submit a repair request, and what the
-automation does when nobody is watching — 209 assertions covering agent,
+automation does when nobody is watching — 241 assertions covering agent,
 broker, contractor and admin.
 
 It needs a local PostgreSQL server (`psql`, `createdb`) but **not** a Supabase
@@ -291,6 +359,9 @@ Among the things it proves:
 - an email is never sent twice, a transient failure is retried, a permanently
   bad address stops consuming the queue, and a message stranded by a crashed
   worker is picked back up
+- a redelivered Stripe webhook is applied once, an out-of-order one is ignored,
+  a failed payment pauses routing without cancelling, and paying does not
+  activate a contractor who has not been approved
 
 ---
 
