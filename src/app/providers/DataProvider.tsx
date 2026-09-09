@@ -11,6 +11,7 @@ import {
 import type {
   Attachment,
   Contractor,
+  MarketplaceMetrics,
   OpportunityStatus,
   Quote,
 } from '@/types/domain';
@@ -67,6 +68,8 @@ interface DataContextValue extends Workspace {
   updateContractor: (contractorId: string, patch: Partial<Contractor>) => Promise<void>;
   /** Advances every lapsed offer. Returns how many moved on. */
   runOfferSweep: () => Promise<number>;
+  /** Admin marketplace roll-up, or null if the viewer is not entitled to it. */
+  marketplaceMetrics: () => Promise<MarketplaceMetrics | null>;
   markNotificationRead: (notificationId: string) => Promise<void>;
   markAllNotificationsRead: (recipientId: string) => Promise<void>;
   attachmentUrl: (attachment: Attachment) => Promise<string | null>;
@@ -167,6 +170,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       updateContractor: (contractorId, patch) =>
         mutate(() => repository.updateContractor(contractorId, patch)),
       runOfferSweep: () => mutate(() => repository.runOfferSweep()),
+      marketplaceMetrics: () => repository.marketplaceMetrics(),
       markNotificationRead: (notificationId) =>
         mutate(() => repository.markNotificationRead(notificationId)),
       markAllNotificationsRead: (recipientId) =>

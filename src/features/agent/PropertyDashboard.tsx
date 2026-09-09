@@ -7,6 +7,7 @@ import { Icon } from '@/components/ui/Icon';
 import { OpportunityStatusBadge, RequestStatusBadge, UrgencyBadge } from '@/components/ui/StatusBadge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { AttachmentList } from '@/components/shared/AttachmentList';
+import { ActivityTimeline } from '@/components/shared/ActivityTimeline';
 import { useData } from '@/app/providers/DataProvider';
 import {
   assignmentsForOpportunity,
@@ -44,6 +45,15 @@ export function PropertyDashboard() {
 
   const opportunities = opportunitiesForRequest(data, request.id);
   const files = data.attachments.filter((a) => a.request_id === request.id);
+
+  // Everything the platform recorded about this property: its own status
+  // changes, and those of every trade under it.
+  const opportunityIds = new Set(opportunities.map((o) => o.id));
+  const history = data.statusHistory.filter(
+    (h) =>
+      (h.entity_type === 'repair_request' && h.entity_id === request.id) ||
+      (h.entity_type === 'opportunity' && opportunityIds.has(h.entity_id)),
+  );
   const inspectionReport = files.find((f) => f.kind === 'inspection_report');
 
   return (
@@ -221,6 +231,25 @@ export function PropertyDashboard() {
           );
         })}
       </div>
+
+      <div style={{ height: 'var(--sp-6)' }} />
+
+      <Card>
+        <CardHeader
+          title="Activity"
+          subtitle="Recorded automatically, including anything the routing engine did on its own"
+        />
+        <CardBody>
+          <ActivityTimeline
+            entries={history}
+            labelForEntity={(entry) =>
+              entry.entity_type === 'opportunity'
+                ? (opportunities.find((o) => o.id === entry.entity_id)?.code ?? null)
+                : `#${request.reference}`
+            }
+          />
+        </CardBody>
+      </Card>
 
       <div style={{ height: 'var(--sp-6)' }} />
 

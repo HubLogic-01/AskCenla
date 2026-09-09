@@ -3,6 +3,7 @@ import type {
   AppNotification,
   Attachment,
   Contractor,
+  MarketplaceMetrics,
   Opportunity,
   OpportunityAssignment,
   OpportunityStatus,
@@ -10,6 +11,7 @@ import type {
   Quote,
   RepairItem,
   RepairRequest,
+  StatusHistoryEntry,
 } from '@/types/domain';
 import type {
   ContractorRow,
@@ -21,13 +23,7 @@ import type {
   RepairItemRow,
   RepairRequestRow,
 } from '@/types/database';
-import {
-  NotYetLiveError,
-  type NewRequestDraft,
-  type Repository,
-  type SubmitResult,
-  type Workspace,
-} from './repository';
+import type { NewRequestDraft, Repository, SubmitResult, Workspace } from './repository';
 
 /**
  * Supabase implementation.
@@ -248,6 +244,7 @@ class SupabaseRepository implements Repository {
       quoteItems,
       attachments,
       notifications,
+      statusHistory,
     ] = await Promise.all([
       this.db.from('contractors').select('*'),
       this.db.from('contractor_trades').select('*'),
@@ -260,6 +257,7 @@ class SupabaseRepository implements Repository {
       this.db.from('quote_items').select('*'),
       this.db.from('attachments').select('*'),
       this.db.from('notifications').select('*').order('created_at', { ascending: false }),
+      this.db.from('status_history').select('*').order('created_at', { ascending: true }),
     ]);
 
     // The pre-acceptance feed is only meaningful for contractors, and it is
@@ -272,6 +270,7 @@ class SupabaseRepository implements Repository {
     const firstError = [
       contractors, contractorTrades, contractorTerritories, requests, items,
       opportunities, assignments, quotes, quoteItems, attachments, notifications,
+      statusHistory,
     ].find((r) => r.error);
     if (firstError?.error) {
       throw new Error(`Could not load your workspace: ${firstError.error.message}`);
@@ -341,6 +340,32 @@ class SupabaseRepository implements Repository {
       quotes: (quotes.data ?? []).map((row) => toQuote(row, (quoteItems.data ?? []) as QuoteItemRow[])),
       attachments: (attachments.data ?? []) as Attachment[],
       notifications: (notifications.data ?? []) as AppNotification[],
+      statusHistory: (statusHistory.data ?? []) as StatusHistoryEntry[],
+    };
+  }
+
+  async marketplaceMetrics(): Promise<MarketplaceMetrics | null> {
+    // Admin-only by construction: the view's own WHERE clause returns no rows
+    // to anyone else, so this needs no role check of its own.
+    const { data, error } = await this.db.from('marketplace_metrics').select('*').maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return null;
+
+    // Postgres returns bigint and numeric as strings over the wire.
+    return {
+      requests_this_month: Number(data.requests_this_month),
+      opportunities_this_month: Number(data.opportunities_this_month),
+      accepted_this_month: Number(data.accepted_this_month),
+      quotes_this_month: Number(data.quotes_this_month),
+      unmatched_opportunities: Number(data.unmatched_opportunities),
+      avg_response_hours: Number(data.avg_response_hours),
+      acceptance_rate: Number(data.acceptance_rate),
+      jobs_won: Number(data.jobs_won),
+      active_members: Number(data.active_members),
+      trial_members: Number(data.trial_members),
+      pending_members: Number(data.pending_members),
+      past_due_members: Number(data.past_due_members),
+      monthly_recurring_revenue: Number(data.monthly_recurring_revenue),
     };
   }
 
@@ -584,21 +609,61 @@ class SupabaseRepository implements Repository {
   // -------------------------------------------------------------------------
   // Admin, notifications, files
   // -------------------------------------------------------------------------
+  /**
+   * One call site in the UI, three mechanisms underneath.
+   *
+   * `trades` and `territory_ids` are join tables, so setting them is a
+   * replace-the-set operation that has to be atomic. `membership_status` and
+   * `is_active` are the columns the matching engine trusts, which is exactly
+   * why the guard trigger refuses to let a contractor write them directly.
+   * Everything else is an ordinary column the RLS policy already covers.
+   */
   async updateContractor(contractorId: string, patch: Partial<Contractor>): Promise<void> {
-    // `trades` and `territory_ids` live in join tables, and `stats` is
-    // denormalized onto columns the platform owns, so none of them belong in a
-    // direct column update. Those editors are wired up in Phase 8.
-    const { trades, territory_ids, stats, ...columns } = patch;
-    if (trades || territory_ids || stats) {
-      throw new NotYetLiveError('Editing trades, territories or statistics', 'Phase 8');
-    }
-    if (Object.keys(columns).length === 0) return;
+    const { trades, territory_ids, stats, membership_status, is_active, ...columns } = patch;
 
-    const { error } = await this.db
-      .from('contractors')
-      .update(columns)
-      .eq('id', contractorId);
-    if (error) throw new Error(error.message);
+    // Routing statistics are maintained by the platform; the guard trigger
+    // would reject this anyway, but failing here says why.
+    if (stats) {
+      throw new Error('Routing statistics are maintained by the platform and cannot be edited.');
+    }
+
+    if (trades) {
+      const { error } = await this.db.rpc('set_contractor_trades', {
+        p_contractor_id: contractorId,
+        p_trades: trades,
+      });
+      if (error) throw new Error(error.message);
+    }
+
+    if (territory_ids) {
+      const { error } = await this.db.rpc('set_contractor_territories', {
+        p_contractor_id: contractorId,
+        p_territories: territory_ids,
+      });
+      if (error) throw new Error(error.message);
+    }
+
+    if (membership_status !== undefined || is_active !== undefined) {
+      // Both columns move together, so read whichever half was not supplied.
+      const { data: current, error: readError } = await this.db
+        .from('contractors')
+        .select('membership_status, is_active')
+        .eq('id', contractorId)
+        .single();
+      if (readError) throw new Error(readError.message);
+
+      const { error } = await this.db.rpc('set_contractor_membership', {
+        p_contractor_id: contractorId,
+        p_status: membership_status ?? current.membership_status,
+        p_is_active: is_active ?? current.is_active,
+      });
+      if (error) throw new Error(error.message);
+    }
+
+    if (Object.keys(columns).length > 0) {
+      const { error } = await this.db.from('contractors').update(columns).eq('id', contractorId);
+      if (error) throw new Error(error.message);
+    }
   }
 
   async runOfferSweep(): Promise<number> {

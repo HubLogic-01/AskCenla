@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Card, CardBody, CardHeader } from '@/components/ui/Card';
@@ -7,42 +8,37 @@ import { Badge } from '@/components/ui/Badge';
 import { Alert } from '@/components/ui/Alert';
 import { OpportunityStatusBadge } from '@/components/ui/StatusBadge';
 import { useData } from '@/app/providers/DataProvider';
-import { isThisMonth } from '@/lib/selectors';
+import type { MarketplaceMetrics } from '@/types/domain';
 import { money, relativeTime } from '@/lib/format';
 import { tradeLabel } from '@/data/trades';
 import { territoryName } from '@/data/seed';
 import { quoteTotals } from '@/lib/quotes';
 
-const MEMBERSHIP_FEE = 199;
-
 export function AdminDashboard() {
   const data = useData();
+  const { marketplaceMetrics } = useData();
+  const [metrics, setMetrics] = useState<MarketplaceMetrics | null>(null);
+  const [metricsError, setMetricsError] = useState<string | null>(null);
 
-  const requestsThisMonth = data.requests.filter((r) => isThisMonth(r.submitted_at));
-  const opportunitiesThisMonth = data.opportunities.filter((o) => isThisMonth(o.created_at));
-  const acceptedThisMonth = data.assignments.filter(
-    (a) => a.outcome === 'accepted' && isThisMonth(a.responded_at),
-  );
-  const quotesThisMonth = data.quotes.filter((q) => isThisMonth(q.submitted_at));
+  // Counted in Postgres, not here. The browser used to derive all of this from
+  // the whole workspace, which only worked because an admin can read every
+  // row — and would mean downloading the entire marketplace to count it once
+  // there are more than a few thousand.
+  useEffect(() => {
+    let active = true;
+    marketplaceMetrics()
+      .then((result) => {
+        if (active) setMetrics(result);
+      })
+      .catch((err: unknown) => {
+        if (active) setMetricsError(err instanceof Error ? err.message : 'Could not load metrics.');
+      });
+    // Re-read whenever the workspace changes, so an approval or a sweep is
+    // reflected without a manual refresh.
+  }, [marketplaceMetrics, data.contractors, data.opportunities, data.quotes]);
+
+  // The lists below are small and already in the workspace, so they stay local.
   const unmatched = data.opportunities.filter((o) => o.status === 'awaiting_contractor');
-
-  const responded = data.assignments.filter((a) => a.responded_at);
-  const avgResponseHours =
-    responded.length > 0
-      ? responded.reduce(
-          (sum, a) => sum + (new Date(a.responded_at!).getTime() - new Date(a.offered_at).getTime()) / 3_600_000,
-          0,
-        ) / responded.length
-      : 0;
-
-  const offers = data.assignments.filter((a) => a.outcome !== 'pending');
-  const acceptanceRate =
-    offers.length > 0
-      ? Math.round((offers.filter((a) => a.outcome === 'accepted').length / offers.length) * 100)
-      : 0;
-
-  const jobsWon = data.opportunities.filter((o) => ['won', 'quote_accepted', 'completed'].includes(o.status));
-  const payingMembers = data.contractors.filter((c) => c.membership_status === 'active');
   const pendingApproval = data.contractors.filter((c) => c.membership_status === 'pending_approval');
   const pastDue = data.contractors.filter((c) => c.membership_status === 'past_due');
 
@@ -52,6 +48,14 @@ export function AdminDashboard() {
         title="Marketplace Overview"
         description="The health of the network at a glance — designed so exceptions surface themselves."
       />
+
+      {metricsError && (
+        <div style={{ marginBottom: 'var(--sp-5)' }}>
+          <Alert tone="danger" title="Could not load marketplace metrics">
+            {metricsError}
+          </Alert>
+        </div>
+      )}
 
       {(unmatched.length > 0 || pendingApproval.length > 0 || pastDue.length > 0) && (
         <div className="stack stack-3" style={{ marginBottom: 'var(--sp-6)' }}>
@@ -75,22 +79,30 @@ export function AdminDashboard() {
       )}
 
       <div className="grid grid--4" style={{ marginBottom: 'var(--sp-5)' }}>
-        <Stat label="Repair requests this month" value={requestsThisMonth.length} tone="accent" />
-        <Stat label="Opportunities created" value={opportunitiesThisMonth.length} meta="This month" />
-        <Stat label="Opportunities accepted" value={acceptedThisMonth.length} tone="success" meta="This month" />
-        <Stat label="Quotes submitted" value={quotesThisMonth.length} meta="This month" />
+        <Stat label="Repair requests this month" value={metrics?.requests_this_month ?? '—'} tone="accent" />
+        <Stat label="Opportunities created" value={metrics?.opportunities_this_month ?? '—'} meta="This month" />
+        <Stat label="Opportunities accepted" value={metrics?.accepted_this_month ?? '—'} tone="success" meta="This month" />
+        <Stat label="Quotes submitted" value={metrics?.quotes_this_month ?? '—'} meta="This month" />
       </div>
 
       <div className="grid grid--4" style={{ marginBottom: 'var(--sp-6)' }}>
         <Stat
           label="Unmatched opportunities"
-          value={unmatched.length}
+          value={metrics?.unmatched_opportunities ?? '—'}
           tone={unmatched.length ? 'danger' : 'success'}
           meta="Need a contractor in that trade"
         />
-        <Stat label="Avg. response time" value={`${avgResponseHours.toFixed(1)}h`} meta="Offer to answer" />
-        <Stat label="Acceptance rate" value={`${acceptanceRate}%`} meta="Of all answered offers" />
-        <Stat label="Jobs reported won" value={jobsWon.length} tone="success" />
+        <Stat
+          label="Avg. response time"
+          value={metrics ? `${metrics.avg_response_hours.toFixed(1)}h` : '—'}
+          meta="Offer to answer"
+        />
+        <Stat
+          label="Acceptance rate"
+          value={metrics ? `${metrics.acceptance_rate}%` : '—'}
+          meta="Of all answered offers"
+        />
+        <Stat label="Jobs reported won" value={metrics?.jobs_won ?? '—'} tone="success" />
       </div>
 
       <div className="grid grid--2" style={{ marginBottom: 'var(--sp-6)' }}>
@@ -98,12 +110,15 @@ export function AdminDashboard() {
           <CardHeader title="Membership" subtitle="Recurring revenue placeholder — live once Stripe is connected" />
           <CardBody>
             <div className="grid grid--3">
-              <Stat label="Active members" value={payingMembers.length} tone="success" />
-              <Stat label="Trial / pending" value={data.contractors.filter((c) => ['trial', 'pending_approval'].includes(c.membership_status)).length} />
+              <Stat label="Active members" value={metrics?.active_members ?? '—'} tone="success" />
+              <Stat
+                label="Trial / pending"
+                value={metrics ? metrics.trial_members + metrics.pending_members : '—'}
+              />
               <Stat
                 label="MRR (projected)"
-                value={money(payingMembers.length * MEMBERSHIP_FEE, true)}
-                meta={`${payingMembers.length} × $${MEMBERSHIP_FEE}`}
+                value={metrics ? money(metrics.monthly_recurring_revenue, true) : '—'}
+                meta={metrics ? `${metrics.active_members} active memberships` : undefined}
                 tone="accent"
               />
             </div>

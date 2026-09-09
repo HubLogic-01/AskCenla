@@ -121,6 +121,7 @@ order**, pasting the contents of each and clicking *Run*:
 | 7 | `supabase/migrations/0007_routing_automation.sql` | Auto-routing, the expiry sweep, status history |
 | 8 | `supabase/migrations/0008_contractor_actions.sql` | Contractor accept / decline / admin re-route |
 | 9 | `supabase/migrations/0009_quotes.sql` | Quote drafting, submission and acceptance |
+| 10 | `supabase/migrations/0010_admin.sql` | Contractor approval, trades/territories, metrics view |
 
 Do **not** run `supabase/tests/00_local_harness.sql` — that file only exists to
 fake Supabase's own `auth` and `storage` schemas when testing on a plain
@@ -191,7 +192,7 @@ npm run db:test
 This builds a throwaway PostgreSQL database, applies every migration and the
 seed, then signs in as each demo user and asserts exactly what they can and
 cannot read, what happens when they submit a repair request, and what the
-automation does when nobody is watching — 148 assertions covering agent,
+automation does when nobody is watching — 179 assertions covering agent,
 broker, contractor and admin.
 
 It needs a local PostgreSQL server (`psql`, `createdb`) but **not** a Supabase
@@ -221,6 +222,8 @@ Among the things it proves:
 - an opportunity is never live with two contractors at once
 - a contractor cannot edit a quote after sending it, and cannot accept their
   own pricing; an agent cannot decide on a quote for someone else's property
+- only an administrator can approve a contractor or change a membership status,
+  and marketplace metrics return nothing at all to anyone else
 
 ---
 
@@ -310,10 +313,13 @@ Full reasoning behind these choices is in
   transactional operation; quotes carry private attachments; and either side
   can print a clean PDF of the quote straight from the browser.
 
-**What remains is admin depth (Phase 8) and Stripe billing (Phase 10)** — see
-[`docs/ROADMAP.md`](docs/ROADMAP.md). Editing a contractor's trades and
-territories against a live database still says so plainly rather than appearing
-to work.
+- **Phase 8** — administration. Contractor approval, trades and territories,
+  marketplace metrics counted in the database rather than in the browser, and
+  an activity timeline showing what the routing engine did on its own.
+
+**Every screen now works against a real database.** What remains is
+notifications by email and Stripe billing — see
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 Never commit credentials. `.env` is git-ignored; `.env.example` documents the
 variables without values.

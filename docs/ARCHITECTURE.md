@@ -87,17 +87,49 @@ it does.
 | `save_quote` | REPLACES line items — a half-done save would empty the pricing |
 | `submit_quote` | Quote + opportunity + the agent's notification are one event |
 | `decide_quote` | The same in reverse, and refuses a contractor approving their own quote |
+| `set_contractor_trades` / `..._territories` | Replaces a set across a join table |
+| `set_contractor_membership` | Writes the columns the guard trigger protects |
 
 Each is `SECURITY DEFINER`, so it runs with rights the caller does not have.
 That makes its own authorisation check the entire security boundary, which is
 why `supabase/tests/04_contractor_actions_test.sql` spends more assertions on
 the abuse cases than the happy path.
 
-### What is not connected yet
+### Reads that are not tables
 
-`supabaseRepository` throws a typed `NotYetLiveError` for editing a
-contractor's trades and territories (Phase 8), naming the phase in the message,
-and the UI surfaces it instead of appearing to work.
+Two things the client reads are database **views**, not tables:
+
+| View | Purpose | Access control |
+|---|---|---|
+| `offered_opportunities` | A contractor's pre-acceptance feed | `where a.contractor_id = app.my_contractor_id()` |
+| `marketplace_metrics` | The admin roll-up, one row | `where app.is_admin()` |
+
+Neither is `security_invoker`, so both run with the owner's rights and **their
+own `WHERE` clause is the entire access control**. That is the point in the
+first case — it exposes a safe subset of rows the caller cannot read directly —
+and the risk in the second, so both have tests asserting that the wrong role
+gets zero rows.
+
+`marketplace_metrics` exists because the admin dashboard was counting the whole
+marketplace in the browser. That works only because an admin can read every
+row, and it would mean shipping the entire database to a laptop to count it
+once there are more than a few thousand records. Postgres counts it in place
+and returns thirteen numbers.
+
+### One call site, three mechanisms
+
+`updateContractor()` is a single method on the repository and a single call
+site in the UI, but the Supabase implementation dispatches on what changed:
+
+- `trades` / `territory_ids` → an RPC, because replacing a set across a join
+  table must be atomic
+- `membership_status` / `is_active` → an RPC, because those are the columns the
+  guard trigger deliberately stops a contractor writing
+- anything else → an ordinary column update the RLS policy already covers
+
+This is what the seam was for. The admin screen and the contractor's own
+profile page both call the same method, and neither knows that toggling a trade
+tile and editing a phone number take different routes into the database.
 
 ## 2b. Printing a quote
 

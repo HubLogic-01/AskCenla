@@ -205,6 +205,34 @@ export type AttachmentRow = {
   created_at: string;
 }
 
+export type StatusHistoryRow = {
+  id: string;
+  entity_type: 'repair_request' | 'opportunity' | 'quote';
+  entity_id: string;
+  from_status: string | null;
+  to_status: string;
+  actor_id: string | null;
+  note: string | null;
+  created_at: string;
+};
+
+/** One row from public.marketplace_metrics. Counts arrive as strings. */
+export type MarketplaceMetricsRow = {
+  requests_this_month: number;
+  opportunities_this_month: number;
+  accepted_this_month: number;
+  quotes_this_month: number;
+  unmatched_opportunities: number;
+  avg_response_hours: number;
+  acceptance_rate: number;
+  jobs_won: number;
+  active_members: number;
+  trial_members: number;
+  pending_members: number;
+  past_due_members: number;
+  monthly_recurring_revenue: number;
+};
+
 export type NotificationRow = {
   id: string;
   recipient_id: string;
@@ -302,9 +330,12 @@ export type Database = {
       quote_items: Table<QuoteItemRow>;
       attachments: Table<AttachmentRow>;
       notifications: Table<NotificationRow>;
+      status_history: Table<StatusHistoryRow>;
     };
     Views: {
       offered_opportunities: { Row: OfferedOpportunityRow; Relationships: [] };
+      /** Admin-only; returns zero rows for anyone else. */
+      marketplace_metrics: { Row: MarketplaceMetricsRow; Relationships: [] };
     };
     Functions: {
       /** supabase/migrations/0006_functions.sql */
@@ -351,6 +382,19 @@ export type Database = {
       decide_quote: {
         Args: { p_quote_id: string; p_decision: 'accepted' | 'declined' };
         Returns: { quote_id: string; status: QuoteStatus };
+      };
+      /** supabase/migrations/0010_admin.sql */
+      set_contractor_trades: {
+        Args: { p_contractor_id: string; p_trades: string[] };
+        Returns: undefined;
+      };
+      set_contractor_territories: {
+        Args: { p_contractor_id: string; p_territories: string[] };
+        Returns: undefined;
+      };
+      set_contractor_membership: {
+        Args: { p_contractor_id: string; p_status: MembershipStatus; p_is_active: boolean };
+        Returns: { contractor_id: string; membership_status: MembershipStatus; is_active: boolean };
       };
     };
     Enums: {

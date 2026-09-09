@@ -2,6 +2,7 @@ import type {
   AppNotification,
   Attachment,
   Contractor,
+  MarketplaceMetrics,
   Opportunity,
   OpportunityAssignment,
   OpportunityStatus,
@@ -10,6 +11,7 @@ import type {
   QuoteLineItem,
   RepairItem,
   RepairRequest,
+  StatusHistoryEntry,
 } from '@/types/domain';
 import * as seed from '@/data/seed';
 import { getTrade } from '@/data/trades';
@@ -48,6 +50,149 @@ class MockRepository implements Repository {
       quotes: structuredClone(seed.quotes),
       attachments: structuredClone(seed.attachments),
       notifications: structuredClone(seed.notifications),
+      statusHistory: MockRepository.derivedHistory(),
+    };
+  }
+
+  /**
+   * The database records status changes by trigger from the moment it is
+   * installed. Demo data has no such record, so rather than invent one this
+   * DERIVES the history that the seeded timestamps already imply: when each
+   * opportunity was offered, when the contractor answered, and where it ended
+   * up. Everything after this point is appended for real as actions happen.
+   */
+  private static derivedHistory(): StatusHistoryEntry[] {
+    const entries: StatusHistoryEntry[] = [];
+    const push = (
+      entityId: string,
+      from: string | null,
+      to: string,
+      at: string | null,
+      note?: string,
+    ) => {
+      if (!at) return;
+      entries.push({
+        id: uuid(),
+        entity_type: 'opportunity',
+        entity_id: entityId,
+        from_status: from,
+        to_status: to,
+        actor_id: null,
+        note: note ?? null,
+        created_at: at,
+      });
+    };
+
+    for (const opportunity of seed.opportunities) {
+      const ladder = seed.opportunityAssignments
+        .filter((a) => a.opportunity_id === opportunity.id)
+        .sort((a, b) => a.position - b.position);
+
+      push(opportunity.id, null, 'matching', opportunity.created_at);
+
+      let previous = 'matching';
+      for (const assignment of ladder) {
+        const contractor = seed.contractors.find((c) => c.id === assignment.contractor_id);
+        push(opportunity.id, previous, 'offered', assignment.offered_at,
+          `Offered to ${contractor?.business_name ?? 'a contractor'}`);
+        previous = 'offered';
+
+        if (assignment.outcome === 'declined') {
+          push(opportunity.id, previous, 'declined', assignment.responded_at,
+            `${contractor?.business_name ?? 'The contractor'} declined`);
+          previous = 'declined';
+        } else if (assignment.outcome === 'expired') {
+          push(opportunity.id, previous, 'declined', assignment.expires_at,
+            `${contractor?.business_name ?? 'The contractor'} did not respond in time`);
+          previous = 'declined';
+        }
+      }
+
+      if (opportunity.accepted_at) {
+        const contractor = seed.contractors.find((c) => c.id === opportunity.contractor_id);
+        push(opportunity.id, previous, 'accepted', opportunity.accepted_at,
+          `${contractor?.business_name ?? 'A contractor'} accepted`);
+        previous = 'accepted';
+      }
+
+      if (opportunity.status !== previous) {
+        push(opportunity.id, previous, opportunity.status, opportunity.updated_at);
+      }
+    }
+
+    return entries.sort((a, b) => a.created_at.localeCompare(b.created_at));
+  }
+
+  /** Mirrors app.record_status_change(): the database does this by trigger. */
+  private recordStatusChange(entityId: string, from: string | null, to: string, note?: string) {
+    if (from === to) return;
+    this.store.statusHistory = [
+      ...this.store.statusHistory,
+      {
+        id: uuid(),
+        entity_type: 'opportunity',
+        entity_id: entityId,
+        from_status: from,
+        to_status: to,
+        actor_id: null,
+        note: note ?? null,
+        created_at: new Date().toISOString(),
+      },
+    ];
+  }
+
+  async marketplaceMetrics(): Promise<MarketplaceMetrics> {
+    // Same arithmetic as public.marketplace_metrics, over the demo store.
+    const thisMonth = (iso: string | null) => {
+      if (!iso) return false;
+      const d = new Date(iso);
+      const now = new Date();
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+    };
+
+    const responded = this.store.assignments.filter((a) => a.responded_at);
+    const answered = this.store.assignments.filter((a) => a.outcome !== 'pending');
+    const activeMembers = this.store.contractors.filter((c) => c.membership_status === 'active');
+
+    return {
+      requests_this_month: this.store.requests.filter((r) => thisMonth(r.submitted_at)).length,
+      opportunities_this_month: this.store.opportunities.filter((o) => thisMonth(o.created_at)).length,
+      accepted_this_month: this.store.assignments.filter(
+        (a) => a.outcome === 'accepted' && thisMonth(a.responded_at),
+      ).length,
+      quotes_this_month: this.store.quotes.filter(
+        (q) => q.status !== 'draft' && thisMonth(q.submitted_at),
+      ).length,
+      unmatched_opportunities: this.store.opportunities.filter(
+        (o) => o.status === 'awaiting_contractor',
+      ).length,
+      avg_response_hours:
+        responded.length === 0
+          ? 0
+          : Math.round(
+              (responded.reduce(
+                (sum, a) =>
+                  sum +
+                  (new Date(a.responded_at!).getTime() - new Date(a.offered_at).getTime()) / 3_600_000,
+                0,
+              ) /
+                responded.length) *
+                10,
+            ) / 10,
+      acceptance_rate:
+        answered.length === 0
+          ? 0
+          : Math.round((answered.filter((a) => a.outcome === 'accepted').length / answered.length) * 100),
+      jobs_won: this.store.opportunities.filter((o) =>
+        ['won', 'quote_accepted', 'completed'].includes(o.status),
+      ).length,
+      active_members: activeMembers.length,
+      trial_members: this.store.contractors.filter((c) => c.membership_status === 'trial').length,
+      pending_members: this.store.contractors.filter(
+        (c) => c.membership_status === 'pending_approval',
+      ).length,
+      past_due_members: this.store.contractors.filter((c) => c.membership_status === 'past_due').length,
+      monthly_recurring_revenue: activeMembers.length * 199,
     };
   }
 
@@ -254,6 +399,10 @@ class MockRepository implements Repository {
     );
     this.recordResponse(contractorId, this.hoursSince(offer.offered_at));
 
+    const acceptedBy = this.store.contractors.find((c) => c.id === contractorId);
+    this.recordStatusChange(opportunityId, opportunity?.status ?? null, 'accepted',
+      `${acceptedBy?.business_name ?? 'A contractor'} accepted`);
+
     if (opportunity) this.syncRequestStatus(opportunity.request_id);
 
     const request = this.store.requests.find((r) => r.id === opportunity?.request_id);
@@ -309,15 +458,21 @@ class MockRepository implements Repository {
       ...(decision.assignment ? [decision.assignment] : []),
     ];
 
+    const declinedBy = this.store.contractors.find((c) => c.id === contractorId);
+    this.recordStatusChange(opportunityId, 'offered', decision.nextStatus,
+      `${declinedBy?.business_name ?? 'The contractor'} declined`);
+
     if (!decision.assignment) this.notifyUnmatched(opportunityId);
     this.syncRequestStatus(opportunity.request_id);
   }
 
   async setOpportunityStatus(opportunityId: string, status: OpportunityStatus): Promise<void> {
     const nowIso = new Date().toISOString();
+    const previous = this.store.opportunities.find((o) => o.id === opportunityId)?.status ?? null;
     this.store.opportunities = this.store.opportunities.map((o) =>
       o.id === opportunityId ? { ...o, status, updated_at: nowIso } : o,
     );
+    this.recordStatusChange(opportunityId, previous, status);
     const opportunity = this.store.opportunities.find((o) => o.id === opportunityId);
     if (opportunity) this.syncRequestStatus(opportunity.request_id);
   }

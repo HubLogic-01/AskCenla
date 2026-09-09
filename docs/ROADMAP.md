@@ -217,16 +217,53 @@ via the Phase 4 trigger, and notifies the contractor. The remaining idea from
 this phase — surfacing `status_history` as an activity timeline on the property
 dashboard — is folded into Phase 8.
 
-### Phase 8 — Admin ← **next**
-Contractor approval workflow, membership overrides, and marketplace metrics
-computed as Postgres views rather than in the browser.
+### ✅ Phase 8 — Administration *(complete)*
 
-### Phase 9 — Notifications and automatic routing
-- Email via Supabase Edge Functions (Resend or Postmark).
-- A scheduled job (pg_cron) running `findExpiredOffers` → `routeOpportunity` so
-  offers advance without anyone watching.
-- No-response reminders, quote-submitted alerts, unmatched-opportunity digest to
-  the admin.
+**Delivered** (`supabase/migrations/0010_admin.sql`):
+
+- `set_contractor_membership()` — administrators only, because these are the
+  two columns the matching engine trusts when deciding who may receive work.
+  Sends a notification when a contractor is let into the network, and stays
+  quiet for a routine correction.
+- `set_contractor_trades()` and `set_contractor_territories()` — replace the
+  whole set, matching how the UI works: both the admin and the contractor
+  toggle tiles and expect the result to be exactly what they see.
+  Delete-then-insert is only safe as one transaction; as two client calls a
+  failure between them would leave a contractor with no trades and therefore no
+  work. A contractor manages their own; an admin manages anyone's.
+- `public.marketplace_metrics` — the admin roll-up, counted in Postgres. The
+  dashboard had been deriving it in the browser from the whole workspace, which
+  only worked because an admin can read every row and would have meant
+  downloading the entire marketplace to count it. Admin-only by construction:
+  the view is not `security_invoker`, so its own `WHERE app.is_admin()` is the
+  access control, and everyone else gets zero rows.
+- **Activity timeline** on the property dashboard, reading the `status_history`
+  the Phase 4 triggers write. This is the folded-in Phase 7 item, and it is the
+  only place you can see what the automation did while nobody was watching.
+
+`updateContractor` stayed a single call site in the UI while gaining three
+mechanisms underneath — join-table replacement, a privileged RPC, and an
+ordinary column update — which is what the repository seam was for. The last
+`NotYetLiveError` is gone, and the class with it: every operation is connected.
+
+*Verified:* 179/179 database assertions, and in the browser the whole admin
+loop — an unmatched flooring job in Pineville, approve the pending contractor
+and grant them that territory, and "No one left" becomes a routed offer.
+
+---
+
+### Phase 9 — Email notifications ← **next**
+
+In-app notifications already exist and are written by the database at every
+event that matters. The automatic routing half of this phase shipped in Phase 4.
+What is left is delivery:
+
+- An Edge Function that sends queued notifications by email (Resend or
+  Postmark), marking each as sent so a retry cannot double-send.
+- A `pg_cron` job to drain the queue, alongside the existing offer sweep.
+- Per-user preferences, so a contractor can choose immediate or daily digest.
+- A daily digest to the platform owner: unmatched opportunities, applications
+  awaiting review, memberships past due.
 
 ### Phase 10 — Stripe membership
 Checkout for the $199/month membership, a webhook that writes

@@ -3,6 +3,7 @@ import type {
   AttachmentKind,
   Contractor,
   AppNotification,
+  MarketplaceMetrics,
   Opportunity,
   OpportunityAssignment,
   OpportunityStatus,
@@ -10,6 +11,7 @@ import type {
   Quote,
   RepairItem,
   RepairRequest,
+  StatusHistoryEntry,
   TradeKey,
   TransactionType,
   UrgencyLevel,
@@ -44,6 +46,8 @@ export interface Workspace {
   quotes: Quote[];
   attachments: Attachment[];
   notifications: AppNotification[];
+  /** Audit trail of every status change the viewer is allowed to see. */
+  statusHistory: StatusHistoryEntry[];
 }
 
 export const EMPTY_WORKSPACE: Workspace = {
@@ -55,6 +59,7 @@ export const EMPTY_WORKSPACE: Workspace = {
   quotes: [],
   attachments: [],
   notifications: [],
+  statusHistory: [],
 };
 
 export interface DraftRepairItem {
@@ -103,17 +108,6 @@ export interface SubmitResult {
   warnings: string[];
 }
 
-/**
- * Thrown when an operation is understood but not yet connected to the
- * database. Lets the UI say something honest instead of failing obscurely.
- */
-export class NotYetLiveError extends Error {
-  constructor(operation: string, phase: string) {
-    super(`${operation} is not connected to the database yet — that lands in ${phase}.`);
-    this.name = 'NotYetLiveError';
-  }
-}
-
 export interface Repository {
   readonly kind: 'mock' | 'supabase';
 
@@ -152,6 +146,13 @@ export interface Repository {
    * produce one (mock mode has no real storage).
    */
   attachmentUrl(attachment: Attachment): Promise<string | null>;
+
+  /**
+   * The admin marketplace roll-up, or null for anyone not entitled to it.
+   * Counted in the database rather than by downloading the marketplace and
+   * counting it in the browser.
+   */
+  marketplaceMetrics(): Promise<MarketplaceMetrics | null>;
 
   /** Mock only; a no-op against a real database. */
   resetDemoData(): Promise<void>;

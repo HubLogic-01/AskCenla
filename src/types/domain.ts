@@ -292,6 +292,26 @@ export interface AppNotification {
   created_at: string;
 }
 
+/**
+ * The admin marketplace roll-up. Computed by public.marketplace_metrics in the
+ * database rather than by counting a downloaded workspace in the browser.
+ */
+export interface MarketplaceMetrics {
+  requests_this_month: number;
+  opportunities_this_month: number;
+  accepted_this_month: number;
+  quotes_this_month: number;
+  unmatched_opportunities: number;
+  avg_response_hours: number;
+  acceptance_rate: number;
+  jobs_won: number;
+  active_members: number;
+  trial_members: number;
+  pending_members: number;
+  past_due_members: number;
+  monthly_recurring_revenue: number;
+}
+
 export interface StatusHistoryEntry {
   id: string;
   entity_type: 'repair_request' | 'opportunity' | 'quote';
