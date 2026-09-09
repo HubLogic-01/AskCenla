@@ -20,6 +20,7 @@ import type {
   AssignmentOutcome,
   AttachmentKind,
   AvailabilityStatus,
+  EmailMode,
   MembershipStatus,
   NotificationKind,
   OpportunityStatus,
@@ -40,6 +41,7 @@ export type ProfileRow = {
   avatar_url: string | null;
   brokerage_id: string | null;
   contractor_id: string | null;
+  email_mode: EmailMode;
   created_at: string;
   updated_at: string;
 }
@@ -399,6 +401,7 @@ export type Database = {
     };
     Enums: {
       user_role: UserRole;
+      email_mode: EmailMode;
       transaction_type: TransactionType;
       urgency_level: UrgencyLevel;
       request_status: RequestStatus;

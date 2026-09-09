@@ -252,20 +252,56 @@ and grant them that territory, and "No one left" becomes a routed offer.
 
 ---
 
-### Phase 9 — Email notifications ← **next**
+### ✅ Phase 9 — Email delivery *(complete)*
 
-In-app notifications already exist and are written by the database at every
-event that matters. The automatic routing half of this phase shipped in Phase 4.
-What is left is delivery:
+In-app notifications already existed and the automatic-routing half shipped in
+Phase 4. This phase is delivery: reaching a contractor on a roof and an owner
+who is not looking at the dashboard.
 
-- An Edge Function that sends queued notifications by email (Resend or
-  Postmark), marking each as sent so a retry cannot double-send.
-- A `pg_cron` job to drain the queue, alongside the existing offer sweep.
-- Per-user preferences, so a contractor can choose immediate or daily digest.
-- A daily digest to the platform owner: unmatched opportunities, applications
-  awaiting review, memberships past due.
+**The split that matters:** the database owns *what* to send and all the
+delivery bookkeeping; the Edge Function owns only *how* to send it. Everything
+that can be wrong in an interesting way is therefore testable against a plain
+PostgreSQL server, and the part that needs the internet is about thirty lines
+with no business logic in it. Swapping Resend for Postmark touches one file and
+no rules.
 
-### Phase 10 — Stripe membership
+**Delivered:**
+
+- `0011_email_delivery.sql` — the notifications table becomes the queue, with
+  a delivery status, attempt count, last error and claim timestamp. Using the
+  same table rather than a second one means "what the user saw in the app" and
+  "what we emailed them" can never disagree.
+- **Per-person preference** (`profiles.email_mode`): immediate, one daily
+  summary, or in-app only. Applied by trigger at insert, so the queue reflects
+  the preference as it was when the event happened.
+- `claim_notification_emails()` / `claim_notification_digests()` — batch claim
+  with `for update skip locked`, so overlapping runs never send the same
+  message twice, plus a 15-minute visibility timeout that reclaims anything
+  stranded by a worker that died mid-flight.
+- `record_notification_delivery()` — a transient failure returns to the queue;
+  an attempt ceiling stops a permanently bad address consuming it forever.
+- `owner_digest()` — the standing summary of things only a person can fix:
+  unmatched work, applications awaiting review, memberships past due,
+  credentials expiring within 30 days. A quiet day sends nothing.
+- `supabase/functions/send-notifications` — the worker, deployed with
+  `--no-verify-jwt` and authenticated on a shared secret. Its service-role key
+  lives in the function's own environment and never touches the database.
+- `0012_email_schedule.sql` — three `pg_cron` schedules, reading the project's
+  URL and secret from `app.settings` so the migration stays generic and the
+  values stay out of version control.
+
+*Verified:* 209/209 database assertions. The queue tests are the point of this
+phase — nobody is emailed twice, a transient failure is retried, a dead address
+gives up, a digest is one email rather than one per item, and a message
+stranded by a crashed worker is recovered.
+
+Writing those tests found the stranded-message case: a worker that claims a
+batch and then dies leaves rows in `sending`, which nothing was looking at any
+more. Hence the claim timestamp and the reclaim window.
+
+---
+
+### Phase 10 — Stripe membership ← **next**
 Checkout for the $199/month membership, a webhook that writes
 `subscriptions.status` and `contractors.membership_status`, and a billing portal
 link. The matching engine already refuses to route to a non-active membership,

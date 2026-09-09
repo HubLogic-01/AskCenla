@@ -275,3 +275,10 @@
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* Delivery preference at the bottom of the notification panel. */
+.notif-panel__footer {
+  padding: var(--sp-4) var(--sp-5);
+  border-top: 1px solid var(--border);
+  background: var(--grey-50);
+}

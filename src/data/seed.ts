@@ -72,6 +72,7 @@ export const profiles: Profile[] = [
     avatar_url: null,
     brokerage_id: 'brk-1',
     contractor_id: null,
+    email_mode: 'immediate',
     created_at: at(-300),
   },
   {
@@ -83,6 +84,7 @@ export const profiles: Profile[] = [
     avatar_url: null,
     brokerage_id: 'brk-1',
     contractor_id: null,
+    email_mode: 'immediate',
     created_at: at(-260),
   },
   {
@@ -94,6 +96,7 @@ export const profiles: Profile[] = [
     avatar_url: null,
     brokerage_id: 'brk-1',
     contractor_id: null,
+    email_mode: 'immediate',
     created_at: at(-190),
   },
   {
@@ -105,6 +108,7 @@ export const profiles: Profile[] = [
     avatar_url: null,
     brokerage_id: 'brk-1',
     contractor_id: null,
+    email_mode: 'immediate',
     created_at: at(-420),
   },
   {
@@ -116,6 +120,7 @@ export const profiles: Profile[] = [
     avatar_url: null,
     brokerage_id: null,
     contractor_id: 'con-plumb-1',
+    email_mode: 'immediate',
     created_at: at(-210),
   },
   {
@@ -127,6 +132,7 @@ export const profiles: Profile[] = [
     avatar_url: null,
     brokerage_id: null,
     contractor_id: null,
+    email_mode: 'immediate',
     created_at: at(-500),
   },
 ];

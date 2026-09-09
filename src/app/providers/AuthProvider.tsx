@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { Profile, UserRole } from '@/types/domain';
+import type { EmailMode, Profile, UserRole } from '@/types/domain';
 import type { ProfileRow } from '@/types/database';
 import { profiles as demoProfiles } from '@/data/seed';
 import { isSupabaseConfigured, supabase } from '@/services/supabase';
@@ -45,6 +45,12 @@ interface AuthContextValue {
   signOut: () => Promise<void>;
   hasRole: (...roles: UserRole[]) => boolean;
   refreshProfile: () => Promise<void>;
+  /**
+   * How this person wants to be emailed. Lives on the profile rather than in
+   * the data layer because it is part of who you are, not part of the
+   * marketplace, and the profile is what AuthProvider owns.
+   */
+  setEmailMode: (mode: EmailMode) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -67,6 +73,7 @@ function rowToProfile(row: ProfileRow): Profile {
     avatar_url: row.avatar_url,
     brokerage_id: row.brokerage_id,
     contractor_id: row.contractor_id,
+    email_mode: row.email_mode,
     created_at: row.created_at,
   };
 }
@@ -226,6 +233,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const setEmailMode = useCallback(
+    async (mode: EmailMode) => {
+      if (!profile) return;
+
+      if (supabase) {
+        const { error } = await supabase
+          .from('profiles')
+          .update({ email_mode: mode })
+          .eq('id', profile.id);
+        if (error) throw new Error(error.message);
+      }
+
+      // Applied locally either way, so the control responds immediately and
+      // mock mode behaves the same as a live one.
+      setProfile({ ...profile, email_mode: mode });
+    },
+    [profile],
+  );
+
   const refreshProfile = useCallback(async () => {
     if (!supabase || !profile) return;
     setProfile(await fetchProfile(profile.id));
@@ -247,8 +273,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signOut,
       hasRole,
       refreshProfile,
+      setEmailMode,
     }),
-    [profile, loading, signIn, signUp, signInAs, signOut, hasRole, refreshProfile],
+    [profile, loading, signIn, signUp, signInAs, signOut, hasRole, refreshProfile, setEmailMode],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

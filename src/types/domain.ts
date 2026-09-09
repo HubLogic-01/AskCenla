@@ -15,6 +15,12 @@
 
 export type UserRole = 'agent' | 'broker' | 'contractor' | 'admin';
 
+/**
+ * How a person wants notifications delivered by email. In-app notifications
+ * are always created regardless — this only controls what leaves the platform.
+ */
+export type EmailMode = 'immediate' | 'daily' | 'off';
+
 export interface Profile {
   id: string;
   role: UserRole;
@@ -24,6 +30,7 @@ export interface Profile {
   avatar_url: string | null;
   brokerage_id: string | null;
   contractor_id: string | null;
+  email_mode: EmailMode;
   created_at: string;
 }
 

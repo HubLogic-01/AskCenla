@@ -122,6 +122,8 @@ order**, pasting the contents of each and clicking *Run*:
 | 8 | `supabase/migrations/0008_contractor_actions.sql` | Contractor accept / decline / admin re-route |
 | 9 | `supabase/migrations/0009_quotes.sql` | Quote drafting, submission and acceptance |
 | 10 | `supabase/migrations/0010_admin.sql` | Contractor approval, trades/territories, metrics view |
+| 11 | `supabase/migrations/0011_email_delivery.sql` | Email queue, preferences, owner digest |
+| 12 | `supabase/migrations/0012_email_schedule.sql` | Schedules the email worker |
 
 Do **not** run `supabase/tests/00_local_harness.sql` — that file only exists to
 fake Supabase's own `auth` and `storage` schemas when testing on a plain
@@ -160,7 +162,69 @@ select jobname, schedule, active from cron.job;
 If you skip this, nothing breaks — offers simply never expire on their own, and
 an admin advances them with **Run sweep now** on the Routing Monitor.
 
-### 6. Create your admin account
+### 6. Turn on email (optional)
+
+Everything works without this — notifications appear in the app either way.
+Email is what reaches a contractor on a roof and an owner who is not looking at
+the dashboard.
+
+**What you need:** an account at [Resend](https://resend.com) (free tier is
+plenty to start) with a verified sending domain, and the
+[Supabase CLI](https://supabase.com/docs/guides/cli) installed.
+
+1. **Enable two extensions** — Database → Extensions → enable `pg_cron` and
+   `pg_net`.
+
+2. **Run the two migrations** (`0011` and `0012`) in the SQL Editor if you have
+   not already.
+
+3. **Deploy the worker:**
+
+   ```bash
+   supabase login
+   supabase link --project-ref YOUR-PROJECT-REF
+   supabase functions deploy send-notifications --no-verify-jwt
+   ```
+
+   `--no-verify-jwt` is deliberate: the database's scheduler calls this, not a
+   signed-in user, so it authenticates on a shared secret instead.
+
+4. **Give it its secrets.** Pick any long random string for `CRON_SECRET`:
+
+   ```bash
+   supabase secrets set \
+     RESEND_API_KEY=re_xxxxxxxx \
+     CRON_SECRET=some-long-random-string \
+     EMAIL_FROM="AskCENLA <notifications@yourdomain.com>" \
+     APP_URL=https://your-site.netlify.app \
+     OWNER_EMAIL=you@yourdomain.com
+   ```
+
+   The service-role key is provided to the function automatically and never
+   goes into the database.
+
+5. **Point the schedule at it.** In the SQL Editor, with the same secret:
+
+   ```sql
+   update app.settings set value = 'https://YOUR-PROJECT-REF.functions.supabase.co'
+     where key = 'edge_function_url';
+   update app.settings set value = 'some-long-random-string'
+     where key = 'cron_secret';
+   ```
+
+6. **Check it.** `select jobname, schedule, active from cron.job;` should list
+   three `askcenla-email-*` jobs. To send immediately rather than waiting for
+   the next tick:
+
+   ```sql
+   select app.invoke_email_worker('immediate');
+   ```
+
+Three schedules run: pending notifications every 5 minutes, daily summaries at
+07:00 UTC, and your own digest of things needing attention at 12:30 UTC. Each
+person chooses immediate, daily or in-app-only from the notifications menu.
+
+### 7. Create your admin account
 
 Sign up through the app, then in the SQL Editor run:
 
@@ -192,7 +256,7 @@ npm run db:test
 This builds a throwaway PostgreSQL database, applies every migration and the
 seed, then signs in as each demo user and asserts exactly what they can and
 cannot read, what happens when they submit a repair request, and what the
-automation does when nobody is watching — 179 assertions covering agent,
+automation does when nobody is watching — 209 assertions covering agent,
 broker, contractor and admin.
 
 It needs a local PostgreSQL server (`psql`, `createdb`) but **not** a Supabase
@@ -224,6 +288,9 @@ Among the things it proves:
   own pricing; an agent cannot decide on a quote for someone else's property
 - only an administrator can approve a contractor or change a membership status,
   and marketplace metrics return nothing at all to anyone else
+- an email is never sent twice, a transient failure is retried, a permanently
+  bad address stops consuming the queue, and a message stranded by a crashed
+  worker is picked back up
 
 ---
 

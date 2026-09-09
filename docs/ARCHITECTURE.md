@@ -392,6 +392,8 @@ database rather than in a browser tab that may not be open.
 | Tell someone the ladder ran out | `app.notify_unmatched()`, once per opportunity | 0007 |
 | Keep a request's status truthful | `app.sync_request_status()` trigger | 0007 |
 | Record what changed | `app.record_status_change()` trigger | 0007 |
+| Deliver notifications by email | queue in `notifications`, drained by an Edge Function on a 5-minute schedule | 0011, 0012 |
+| Summarise the day for the owner | `owner_digest()` on a daily schedule | 0011 |
 
 Three design notes worth keeping:
 
@@ -423,6 +425,31 @@ opportunity ever has two pending assignments.
 Everything above surfaces exceptions rather than queuing work: the Routing
 Monitor shows only what the automation could not finish, and explains why per
 contractor. The owner recruits for a coverage gap instead of dispatching jobs.
+
+### Email: what is in the database and what is not
+
+The database owns **what** to send and every piece of delivery bookkeeping.
+The Edge Function owns only **how** — one HTTPS call to a provider.
+
+That line is drawn where it is because the interesting failures in an email
+system are not "did the HTTP request succeed". They are: emailing someone
+twice, losing a message on a transient failure, retrying forever against a dead
+address, ignoring a preference, and stranding messages when a worker dies. All
+of those are queue mechanics, and all of them are in SQL under test.
+
+Three details worth keeping:
+
+- **The queue is the `notifications` table**, not a second one. Every row
+  already has a recipient, title, body and link; giving it a delivery state
+  means what someone saw in the app and what we emailed them can never diverge.
+- **`for update skip locked` plus a claim timestamp.** The first stops two
+  overlapping runs claiming the same row. The second handles the case the tests
+  found: a worker that claims a batch and dies leaves rows in `sending` that
+  are no longer `pending`, so without a reclaim window nothing would ever look
+  at them again.
+- **Preference is applied at insert, not at send.** The queue then reflects
+  what the recipient wanted when the event happened, and someone switching to
+  "off" does not silently swallow something already queued for them.
 
 ## 8. What is intentionally not built
 
